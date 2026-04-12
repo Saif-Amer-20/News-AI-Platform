@@ -1,0 +1,20 @@
+{% load i18n %}
+<section class="ops-shell-bar ops-shell-bar-subpage">
+  <div class="ops-shell-copy">
+    <strong>{% translate "Operations Workspace" %}</strong>
+    <span>{{ user.get_username }}</span>
+    <span class="ops-shell-badge">{% if user.is_superuser %}{% translate "Superuser" %}{% else %}{% translate "Staff" %}{% endif %}</span>
+  </div>
+  <div class="ops-shell-links">
+    {% if site_url %}
+      <a href="{{ site_url }}">{% translate "View Site" %}</a>
+    {% endif %}
+    {% if user.has_usable_password %}
+      <a href="{% url 'admin:password_change' %}">{% translate "Change Password" %}</a>
+    {% endif %}
+    <form method="post" action="{% url 'admin:logout' %}" class="ops-shell-logout">
+      {% csrf_token %}
+      <button type="submit">{% translate "Log out" %}</button>
+    </form>
+  </div>
+</section>

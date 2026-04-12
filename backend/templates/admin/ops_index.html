@@ -1,0 +1,1109 @@
+{% extends "admin/base_site.html" %}
+{% load i18n log %}
+
+{% block bodyclass %}{{ block.super }} ops-admin-home{% endblock %}
+{% block coltype %}colM{% endblock %}
+{% block usertools %}{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  body.ops-admin-home {
+    --ops-bg: #06101f;
+    --ops-surface: rgba(8, 18, 35, 0.78);
+    --ops-surface-strong: rgba(11, 24, 46, 0.96);
+    --ops-surface-soft: rgba(15, 32, 58, 0.72);
+    --ops-border: rgba(148, 163, 184, 0.16);
+    --ops-border-strong: rgba(96, 165, 250, 0.28);
+    --ops-text: #e5eef9;
+    --ops-text-soft: #9cb0c9;
+    --ops-text-muted: #6f85a1;
+    --ops-primary: #60a5fa;
+    --ops-primary-strong: #2f7df4;
+    --ops-cyan: #22d3ee;
+    --ops-green: #34d399;
+    --ops-amber: #fbbf24;
+    --ops-pink: #fb7185;
+    --ops-shadow: 0 24px 70px rgba(1, 8, 20, 0.42);
+    --ops-shadow-soft: 0 14px 34px rgba(1, 8, 20, 0.25);
+  }
+
+  body.ops-admin-home #header,
+  body.ops-admin-home div.breadcrumbs,
+  body.ops-admin-home #nav-sidebar,
+  body.ops-admin-home #toggle-nav-sidebar {
+    display: none !important;
+  }
+
+  body.ops-admin-home {
+    background:
+      radial-gradient(circle at top left, rgba(34, 211, 238, 0.09), transparent 28%),
+      radial-gradient(circle at bottom right, rgba(96, 165, 250, 0.1), transparent 32%),
+      #06101f !important;
+  }
+
+  body.ops-admin-home #container {
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  body.ops-admin-home #content {
+    float: none !important;
+    width: 100% !important;
+    max-width: none;
+    margin: 0 auto !important;
+    padding: 28px clamp(20px, 3vw, 42px) 48px;
+    overflow: visible !important;
+  }
+
+  body.ops-admin-home .main,
+  body.ops-admin-home #main,
+  body.ops-admin-home #content-start,
+  body.ops-admin-home #content-main,
+  body.ops-admin-home #content-related {
+    float: none !important;
+    width: auto !important;
+    margin: 0 !important;
+    position: static !important;
+    overflow: visible !important;
+  }
+
+  body.ops-admin-home #content > h1 {
+    margin: 0 0 18px;
+    font-size: clamp(1.8rem, 2.1vw, 2.7rem);
+    letter-spacing: -0.05em;
+  }
+
+  body.ops-admin-home .ops-shell-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+    padding: 16px 18px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 20px;
+    background: rgba(8, 18, 35, 0.78);
+    box-shadow: var(--ops-shadow-soft);
+  }
+
+  body.ops-admin-home .ops-shell-copy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  body.ops-admin-home .ops-shell-copy strong {
+    color: #f8fbff;
+    font-size: 1rem;
+    letter-spacing: -0.02em;
+  }
+
+  body.ops-admin-home .ops-shell-copy span {
+    color: var(--ops-text-soft);
+    font-size: 0.85rem;
+  }
+
+  body.ops-admin-home .ops-shell-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(96, 165, 250, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.18);
+    color: #d9ecff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  body.ops-admin-home .ops-shell-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  body.ops-admin-home .ops-shell-links a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--ops-text) !important;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  body.ops-admin-home .ops-shell-links a:hover {
+    background: rgba(96, 165, 250, 0.11);
+    border-color: rgba(96, 165, 250, 0.28);
+  }
+
+  body.ops-admin-home .ops-dashboard {
+    display: grid;
+    gap: 28px;
+    width: 100%;
+  }
+
+  body.ops-admin-home .ops-hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 430px);
+    gap: 28px;
+    padding: 34px;
+    border: 1px solid var(--ops-border);
+    border-radius: 30px;
+    background:
+      radial-gradient(circle at top left, rgba(34, 211, 238, 0.14), transparent 34%),
+      radial-gradient(circle at bottom right, rgba(96, 165, 250, 0.18), transparent 36%),
+      linear-gradient(145deg, rgba(9, 20, 37, 0.96), rgba(6, 15, 29, 0.92));
+    box-shadow: var(--ops-shadow);
+    overflow: hidden;
+  }
+
+  body.ops-admin-home .ops-hero::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(96, 165, 250, 0.45), transparent);
+  }
+
+  body.ops-admin-home .ops-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 18px;
+    padding: 8px 12px;
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    border-radius: 999px;
+    background: rgba(96, 165, 250, 0.08);
+    color: #b8dbff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  body.ops-admin-home .ops-kicker::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--ops-cyan), var(--ops-primary));
+    box-shadow: 0 0 20px rgba(34, 211, 238, 0.55);
+  }
+
+  body.ops-admin-home .ops-hero-head {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
+
+  body.ops-admin-home .ops-hero-mark {
+    width: 72px;
+    height: 72px;
+    border-radius: 22px;
+    display: grid;
+    place-items: center;
+    background:
+      linear-gradient(145deg, rgba(96, 165, 250, 0.22), rgba(34, 211, 238, 0.12)),
+      rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    color: #d8ecff;
+    font-size: 1.7rem;
+    font-weight: 800;
+    letter-spacing: -0.06em;
+  }
+
+  body.ops-admin-home .ops-hero-copy h2 {
+    margin: 0;
+    font-size: clamp(1.7rem, 2.1vw, 2.55rem);
+    line-height: 1.05;
+    letter-spacing: -0.05em;
+    color: #f8fbff;
+  }
+
+  body.ops-admin-home .ops-hero-copy p {
+    margin: 12px 0 0;
+    max-width: 760px;
+    color: var(--ops-text-soft);
+    font-size: 0.98rem;
+    line-height: 1.7;
+  }
+
+  body.ops-admin-home .ops-quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 26px;
+  }
+
+  body.ops-admin-home .ops-quick-actions a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    padding: 0 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--ops-text) !important;
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  body.ops-admin-home .ops-quick-actions a:hover {
+    transform: translateY(-2px);
+    border-color: rgba(96, 165, 250, 0.36);
+    background: rgba(96, 165, 250, 0.11);
+    box-shadow: 0 10px 24px rgba(47, 125, 244, 0.15);
+  }
+
+  body.ops-admin-home .ops-quick-actions a.ops-quick-actions-primary {
+    background: linear-gradient(135deg, rgba(47, 125, 244, 0.94), rgba(34, 211, 238, 0.84));
+    border-color: transparent;
+    color: #06101f !important;
+    box-shadow: 0 16px 32px rgba(34, 211, 238, 0.2);
+  }
+
+  body.ops-admin-home .ops-quick-actions a.ops-quick-actions-primary:hover {
+    background: linear-gradient(135deg, rgba(114, 182, 255, 0.98), rgba(77, 226, 247, 0.88));
+    box-shadow: 0 22px 38px rgba(34, 211, 238, 0.22);
+  }
+
+  body.ops-admin-home .ops-hero-panel {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+    min-width: 0;
+  }
+
+  body.ops-admin-home .ops-panel-card {
+    padding: 18px 18px 16px;
+    border-radius: 22px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+      rgba(8, 18, 35, 0.64);
+    box-shadow: var(--ops-shadow-soft);
+  }
+
+  body.ops-admin-home .ops-panel-card h3 {
+    margin: 0;
+    color: #f8fbff;
+    font-size: 1rem;
+    letter-spacing: -0.02em;
+  }
+
+  body.ops-admin-home .ops-panel-card p {
+    margin: 8px 0 0;
+    color: var(--ops-text-soft);
+    font-size: 0.88rem;
+    line-height: 1.65;
+  }
+
+  body.ops-admin-home .ops-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  body.ops-admin-home .ops-metric {
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  body.ops-admin-home .ops-metric-value {
+    display: block;
+    color: #f8fbff;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+  }
+
+  body.ops-admin-home .ops-metric-label {
+    display: block;
+    margin-top: 6px;
+    color: var(--ops-text-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  body.ops-admin-home .ops-dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    gap: 28px;
+    align-items: start;
+    width: 100%;
+  }
+
+  body.ops-admin-home .ops-groups {
+    --ops-group-columns: 2;
+    display: grid;
+    grid-template-columns: repeat(var(--ops-group-columns), minmax(0, 1fr));
+    gap: 22px;
+    align-items: start;
+    min-width: 0;
+  }
+
+  body.ops-admin-home .ops-groups-column {
+    display: grid;
+    gap: 22px;
+    align-content: start;
+    min-width: 0;
+  }
+
+  body.ops-admin-home .ops-group-card {
+    position: relative;
+    display: grid;
+    width: 100%;
+    align-content: start;
+    gap: 18px;
+    margin: 0;
+    padding: 22px;
+    border-radius: 24px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background:
+      radial-gradient(circle at top right, rgba(255, 255, 255, 0.07), transparent 34%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015)),
+      rgba(8, 18, 35, 0.74);
+    box-shadow: var(--ops-shadow-soft);
+    overflow: hidden;
+    align-self: start;
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  body.ops-admin-home .ops-group-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: linear-gradient(180deg, var(--group-accent), transparent 82%);
+  }
+
+  body.ops-admin-home .ops-group-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(96, 165, 250, 0.22);
+    box-shadow: 0 24px 42px rgba(1, 8, 20, 0.28);
+  }
+
+  body.ops-admin-home .ops-group-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: start;
+  }
+
+  body.ops-admin-home .ops-group-index {
+    margin: 0 0 10px;
+    color: var(--group-accent);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  body.ops-admin-home .ops-group-top h3 {
+    margin: 0;
+    color: #f8fbff;
+    font-size: 1.12rem;
+    letter-spacing: -0.03em;
+  }
+
+  body.ops-admin-home .ops-group-top p {
+    margin: 10px 0 0;
+    color: var(--ops-text-soft);
+    font-size: 0.88rem;
+    line-height: 1.65;
+  }
+
+  body.ops-admin-home .ops-group-count {
+    flex-shrink: 0;
+    padding: 9px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    color: var(--group-accent);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  body.ops-admin-home .ops-model-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 12px;
+  }
+
+  body.ops-admin-home .ops-model-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 170px;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.018));
+  }
+
+  body.ops-admin-home .ops-model-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    margin: 0 0 12px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--ops-text-muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  body.ops-admin-home .ops-model-card h4 {
+    margin: 0;
+    color: #f8fbff;
+    font-size: 1rem;
+    letter-spacing: -0.02em;
+  }
+
+  body.ops-admin-home .ops-model-card p {
+    margin: 10px 0 0;
+    color: var(--ops-text-soft);
+    font-size: 0.84rem;
+    line-height: 1.6;
+  }
+
+  body.ops-admin-home .ops-model-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  body.ops-admin-home .ops-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 12px;
+    font-size: 0.79rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  }
+
+  body.ops-admin-home .ops-action:hover {
+    transform: translateY(-1px);
+  }
+
+  body.ops-admin-home .ops-action-primary {
+    background: linear-gradient(135deg, rgba(52, 211, 153, 0.96), rgba(16, 185, 129, 0.88));
+    color: #041018 !important;
+    box-shadow: 0 10px 20px rgba(52, 211, 153, 0.16);
+  }
+
+  body.ops-admin-home .ops-action-primary:hover {
+    box-shadow: 0 14px 28px rgba(52, 211, 153, 0.22);
+  }
+
+  body.ops-admin-home .ops-action-secondary {
+    border: 1px solid rgba(96, 165, 250, 0.16);
+    background: rgba(96, 165, 250, 0.09);
+    color: #d9ecff !important;
+  }
+
+  body.ops-admin-home .ops-action-secondary:hover {
+    border-color: rgba(96, 165, 250, 0.3);
+    background: rgba(96, 165, 250, 0.16);
+  }
+
+  body.ops-admin-home .ops-aside {
+    display: grid;
+    gap: 16px;
+    position: sticky;
+    top: 86px;
+  }
+
+  body.ops-admin-home .ops-side-card {
+    padding: 22px;
+    border-radius: 24px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.015)),
+      rgba(8, 18, 35, 0.76);
+    box-shadow: var(--ops-shadow-soft);
+  }
+
+  body.ops-admin-home .ops-side-kicker {
+    margin: 0 0 10px;
+    color: #9ecbff;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  body.ops-admin-home .ops-side-card h3 {
+    margin: 0;
+    color: #f8fbff;
+    font-size: 1.12rem;
+    letter-spacing: -0.03em;
+  }
+
+  body.ops-admin-home .ops-side-card > p:not(.ops-side-kicker) {
+    margin: 10px 0 0;
+    color: var(--ops-text-soft);
+    font-size: 0.88rem;
+    line-height: 1.65;
+  }
+
+  body.ops-admin-home .ops-fact-list,
+  body.ops-admin-home .ops-activity-list,
+  body.ops-admin-home .ops-guide-list {
+    margin: 18px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  body.ops-admin-home .ops-fact-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  body.ops-admin-home .ops-fact-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(148, 163, 184, 0.08);
+    color: var(--ops-text-soft);
+    font-size: 0.82rem;
+  }
+
+  body.ops-admin-home .ops-fact-list strong {
+    color: #f8fbff;
+    font-size: 0.86rem;
+    font-weight: 700;
+  }
+
+  body.ops-admin-home .ops-activity-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  body.ops-admin-home .ops-activity-item {
+    display: grid;
+    gap: 10px;
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  body.ops-admin-home .ops-activity-pill {
+    display: inline-flex;
+    width: fit-content;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  body.ops-admin-home .ops-activity-pill.is-addition {
+    background: rgba(52, 211, 153, 0.14);
+    color: #8ef1c8;
+  }
+
+  body.ops-admin-home .ops-activity-pill.is-change {
+    background: rgba(96, 165, 250, 0.14);
+    color: #badcff;
+  }
+
+  body.ops-admin-home .ops-activity-pill.is-deletion {
+    background: rgba(251, 113, 133, 0.15);
+    color: #ffbdc8;
+  }
+
+  body.ops-admin-home .ops-activity-item a,
+  body.ops-admin-home .ops-activity-item strong {
+    color: #f8fbff !important;
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  body.ops-admin-home .ops-activity-item p {
+    margin: 8px 0 0;
+    color: var(--ops-text-soft);
+    font-size: 0.8rem;
+    line-height: 1.55;
+  }
+
+  body.ops-admin-home .ops-empty-state {
+    margin-top: 18px;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px dashed rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--ops-text-soft);
+    font-size: 0.86rem;
+    line-height: 1.7;
+  }
+
+  body.ops-admin-home .ops-guide-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  body.ops-admin-home .ops-guide-list li {
+    position: relative;
+    padding: 0 0 0 18px;
+    color: var(--ops-text-soft);
+    font-size: 0.84rem;
+    line-height: 1.7;
+  }
+
+  body.ops-admin-home .ops-guide-list li::before {
+    content: "";
+    position: absolute;
+    top: 0.55rem;
+    left: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--ops-cyan), var(--ops-primary));
+  }
+
+  @media (max-width: 1380px) {
+    body.ops-admin-home .ops-dashboard-grid {
+      grid-template-columns: 1fr;
+    }
+
+    body.ops-admin-home .ops-aside {
+      position: static;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+  }
+
+  @media (min-width: 1680px) {
+    body.ops-admin-home .ops-groups {
+      --ops-group-columns: 3;
+    }
+  }
+
+  @media (min-width: 2300px) {
+    body.ops-admin-home .ops-dashboard-grid {
+      grid-template-columns: minmax(0, 1fr) 440px;
+    }
+
+    body.ops-admin-home .ops-groups {
+      --ops-group-columns: 4;
+    }
+  }
+
+  @media (max-width: 1180px) {
+    body.ops-admin-home .ops-hero {
+      grid-template-columns: 1fr;
+    }
+
+    body.ops-admin-home .ops-groups {
+      --ops-group-columns: 1;
+    }
+  }
+
+  @media (max-width: 767px) {
+    body.ops-admin-home #content {
+      padding: 16px 14px 36px;
+    }
+
+    body.ops-admin-home .ops-shell-bar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    body.ops-admin-home .ops-shell-links {
+      justify-content: stretch;
+      flex-direction: column;
+    }
+
+    body.ops-admin-home .ops-shell-links a {
+      width: 100%;
+    }
+
+    body.ops-admin-home .ops-hero,
+    body.ops-admin-home .ops-group-card,
+    body.ops-admin-home .ops-side-card {
+      padding: 18px;
+      border-radius: 22px;
+    }
+
+    body.ops-admin-home .ops-hero-head {
+      grid-template-columns: 1fr;
+    }
+
+    body.ops-admin-home .ops-hero-mark {
+      width: 60px;
+      height: 60px;
+      border-radius: 18px;
+    }
+
+    body.ops-admin-home .ops-metrics {
+      grid-template-columns: 1fr;
+    }
+
+    body.ops-admin-home .ops-model-grid {
+      grid-template-columns: 1fr;
+    }
+
+    body.ops-admin-home .ops-quick-actions,
+    body.ops-admin-home .ops-model-actions {
+      flex-direction: column;
+    }
+
+    body.ops-admin-home .ops-quick-actions a,
+    body.ops-admin-home .ops-action {
+      width: 100%;
+    }
+
+    body.ops-admin-home .ops-group-top {
+      flex-direction: column;
+    }
+
+    body.ops-admin-home .ops-group-count {
+      align-self: start;
+    }
+
+    body.ops-admin-home .ops-aside {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block sidebar %}{% endblock %}
+
+{% block content %}
+<div class="ops-dashboard">
+  <section class="ops-shell-bar">
+    <div class="ops-shell-copy">
+      <strong>{% translate "Operations Workspace" %}</strong>
+      <span>{{ user.get_username }}</span>
+      <span class="ops-shell-badge">{% if user.is_superuser %}{% translate "Superuser" %}{% else %}{% translate "Staff" %}{% endif %}</span>
+    </div>
+    <div class="ops-shell-links">
+      {% if site_url %}
+        <a href="{{ site_url }}">{% translate "View Site" %}</a>
+      {% endif %}
+      <a href="{% url 'admin:password_change' %}">{% translate "Change Password" %}</a>
+      <a href="{% url 'admin:logout' %}">{% translate "Log out" %}</a>
+    </div>
+  </section>
+
+  <section class="ops-hero">
+    <div class="ops-hero-copy">
+      <p class="ops-kicker">{% translate "Admin Command Center" %}</p>
+      <div class="ops-hero-head">
+        <div class="ops-hero-mark">NI</div>
+        <div>
+          <h2>{% translate "News Intelligence Operations Console" %}</h2>
+          <p>{% translate "Manage source ingestion, monitor pipeline health, coordinate intelligence entities, and handle investigations from a single control surface designed for daily operations." %}</p>
+        </div>
+      </div>
+      <div class="ops-quick-actions">
+        <a class="ops-quick-actions-primary" href="sources/source/add/">{% translate "Add Source" %}</a>
+        <a href="sources/source/">{% translate "Browse Sources" %}</a>
+        <a href="sources/sourcefetchrun/">{% translate "Review Fetch Runs" %}</a>
+        <a href="sources/sourcefetcherror/">{% translate "Inspect Errors" %}</a>
+        <a href="cases/case/">{% translate "Open Cases" %}</a>
+        <a href="alerts/alert/">{% translate "Check Alerts" %}</a>
+      </div>
+    </div>
+    <div class="ops-hero-panel">
+      <section class="ops-panel-card">
+        <h3>{% translate "Operational Snapshot" %}</h3>
+        <p>{% translate "A cleaner overview for the admin surface, with faster access to the areas you use most often." %}</p>
+        <div class="ops-metrics">
+          <div class="ops-metric">
+            <span class="ops-metric-value">{{ app_list|length }}</span>
+            <span class="ops-metric-label">{% translate "Control Domains" %}</span>
+          </div>
+          <div class="ops-metric">
+            <span class="ops-metric-value">{% if user.is_superuser %}{% translate "Full" %}{% else %}{% translate "Scoped" %}{% endif %}</span>
+            <span class="ops-metric-label">{% translate "Access Profile" %}</span>
+          </div>
+          <div class="ops-metric">
+            <span class="ops-metric-value">{% now "M j" %}</span>
+            <span class="ops-metric-label">{% translate "Today" %}</span>
+          </div>
+          <div class="ops-metric">
+            <span class="ops-metric-value">Django</span>
+            <span class="ops-metric-label">{% translate "Platform Core" %}</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <div class="ops-dashboard-grid">
+    <div class="ops-groups">
+      {% if app_list %}
+        {% for app in app_list %}
+          <section class="ops-group-card" style="--group-accent:{% cycle '#60a5fa' '#34d399' '#fbbf24' '#fb7185' '#a78bfa' '#2dd4bf' '#f97316' '#38bdf8' %};">
+            <div class="ops-group-top">
+              <div>
+                <p class="ops-group-index">{% translate "Control Area" %} {% if forloop.counter < 10 %}0{% endif %}{{ forloop.counter }}</p>
+                <h3>{{ app.name }}</h3>
+                {% if app.description %}
+                  <p>{{ app.description }}</p>
+                {% endif %}
+              </div>
+              <div class="ops-group-count">{{ app.models|length }} {% translate "modules" %}</div>
+            </div>
+
+            <div class="ops-model-grid">
+              {% for model in app.models %}
+                <article class="ops-model-card">
+                  <div>
+                    <span class="ops-model-eyebrow">{% if model.view_only %}{% translate "Read only" %}{% else %}{% translate "Editable" %}{% endif %}</span>
+                    <h4>{{ model.name }}</h4>
+                    <p>
+                      {% if model.view_only %}
+                        {% translate "Open this dataset in read-only mode and inspect existing records." %}
+                      {% else %}
+                        {% translate "Manage records, review existing entries, and jump straight into day-to-day administration." %}
+                      {% endif %}
+                    </p>
+                  </div>
+                  <div class="ops-model-actions">
+                    {% if model.admin_url %}
+                      <a class="ops-action ops-action-secondary" href="{{ model.admin_url }}">
+                        {% if model.view_only %}{% translate "View Records" %}{% else %}{% translate "Manage" %}{% endif %}
+                      </a>
+                    {% endif %}
+                    {% if model.add_url %}
+                      <a class="ops-action ops-action-primary" href="{{ model.add_url }}">{% translate "Create New" %}</a>
+                    {% endif %}
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          </section>
+        {% endfor %}
+      {% else %}
+        <div class="ops-group-card">
+          <div>
+            <p class="ops-group-index">{% translate "No Modules" %}</p>
+            <h3>{% translate "Nothing is available yet" %}</h3>
+            <p>{% translate "Once applications are registered with the admin site, they will appear here as organized operational surfaces." %}</p>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    <aside class="ops-aside">
+      <section class="ops-side-card">
+        <p class="ops-side-kicker">{% translate "Session Context" %}</p>
+        <h3>{{ user.get_username }}</h3>
+        <p>{% translate "You are viewing the reorganized operations homepage with quick access to ingestion, intelligence, alerts, cases, and core platform controls." %}</p>
+        <ul class="ops-fact-list">
+          <li>
+            <span>{% translate "Permissions" %}</span>
+            <strong>{% if user.is_superuser %}{% translate "Superuser" %}{% else %}{% translate "Staff Account" %}{% endif %}</strong>
+          </li>
+          <li>
+            <span>{% translate "Available Domains" %}</span>
+            <strong>{{ app_list|length }}</strong>
+          </li>
+          <li>
+            <span>{% translate "Operational Date" %}</span>
+            <strong>{% now "l, M j" %}</strong>
+          </li>
+        </ul>
+      </section>
+
+      <section class="ops-side-card">
+        <p class="ops-side-kicker">{% translate "Recent Actions" %}</p>
+        <h3>{% translate "My latest changes" %}</h3>
+        {% get_admin_log 8 as admin_log for_user user %}
+        {% if admin_log %}
+          <ol class="ops-activity-list">
+            {% for entry in admin_log %}
+              <li class="ops-activity-item">
+                <span class="ops-activity-pill {% if entry.is_addition %}is-addition{% elif entry.is_change %}is-change{% else %}is-deletion{% endif %}">
+                  {% if entry.is_addition %}
+                    {% translate "Created" %}
+                  {% elif entry.is_change %}
+                    {% translate "Updated" %}
+                  {% else %}
+                    {% translate "Deleted" %}
+                  {% endif %}
+                </span>
+                <div>
+                  {% if entry.is_deletion or not entry.get_admin_url %}
+                    <strong>{{ entry.object_repr }}</strong>
+                  {% else %}
+                    <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
+                  {% endif %}
+                  <p>
+                    {% if entry.content_type %}
+                      {{ entry.content_type|capfirst }}
+                    {% else %}
+                      {% translate "Administrative object" %}
+                    {% endif %}
+                  </p>
+                </div>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <div class="ops-empty-state">
+            {% translate "No recent actions are available yet. As soon as you create or update records, they will appear here for quick tracking." %}
+          </div>
+        {% endif %}
+      </section>
+
+      <section class="ops-side-card">
+        <p class="ops-side-kicker">{% translate "Operator Guide" %}</p>
+        <h3>{% translate "Recommended workflow" %}</h3>
+        <ul class="ops-guide-list">
+          <li>{% translate "Start with sources and fetch runs when you are tracing ingestion issues or empty pipelines." %}</li>
+          <li>{% translate "Use alerts and cases together when an event needs triage, follow-up, or analyst collaboration." %}</li>
+          <li>{% translate "Keep audit logs and dead-letter items close when you are validating admin changes or debugging background processing." %}</li>
+        </ul>
+      </section>
+    </aside>
+  </div>
+</div>
+<script>
+  (function () {
+    function getOpsGroups() {
+      return document.querySelector(".ops-groups");
+    }
+
+    function getColumnCount(container) {
+      const value = parseInt(getComputedStyle(container).getPropertyValue("--ops-group-columns"), 10);
+      return Number.isFinite(value) && value > 0 ? value : 1;
+    }
+
+    function collectCards(container) {
+      const cards = Array.from(container.querySelectorAll(".ops-group-card"));
+      cards.forEach(function (card, index) {
+        if (!card.dataset.opsOrder) {
+          card.dataset.opsOrder = String(index);
+        }
+      });
+
+      return cards.sort(function (left, right) {
+        return Number(left.dataset.opsOrder) - Number(right.dataset.opsOrder);
+      });
+    }
+
+    function clearBalancedColumns(container, cards) {
+      const columns = Array.from(container.querySelectorAll(".ops-groups-column"));
+      cards.forEach(function (card) {
+        container.appendChild(card);
+      });
+      columns.forEach(function (column) {
+        column.remove();
+      });
+    }
+
+    function buildColumns(container, count) {
+      const columns = [];
+
+      for (let index = 0; index < count; index += 1) {
+        const column = document.createElement("div");
+        column.className = "ops-groups-column";
+        container.appendChild(column);
+        columns.push(column);
+      }
+
+      return columns;
+    }
+
+    function shortestColumnIndex(heights) {
+      let selected = 0;
+
+      for (let index = 1; index < heights.length; index += 1) {
+        if (heights[index] < heights[selected]) {
+          selected = index;
+        }
+      }
+
+      return selected;
+    }
+
+    function balanceOpsGroups() {
+      const container = getOpsGroups();
+      if (!container) {
+        return;
+      }
+
+      const cards = collectCards(container);
+      clearBalancedColumns(container, cards);
+
+      const columnCount = getColumnCount(container);
+      if (columnCount <= 1 || cards.length <= 1) {
+        return;
+      }
+
+      const columns = buildColumns(container, columnCount);
+      const heights = new Array(columnCount).fill(0);
+
+      cards.forEach(function (card, index) {
+        const columnIndex = index < columnCount ? index : shortestColumnIndex(heights);
+        columns[columnIndex].appendChild(card);
+        heights[columnIndex] = columns[columnIndex].offsetHeight;
+      });
+    }
+
+    let balanceFrame = null;
+    function scheduleBalance() {
+      if (balanceFrame !== null) {
+        cancelAnimationFrame(balanceFrame);
+      }
+
+      balanceFrame = requestAnimationFrame(function () {
+        balanceFrame = null;
+        balanceOpsGroups();
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", scheduleBalance);
+    window.addEventListener("load", scheduleBalance);
+    window.addEventListener("resize", scheduleBalance);
+
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(scheduleBalance);
+    }
+  })();
+</script>
+{% endblock %}

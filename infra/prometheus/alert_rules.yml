@@ -1,0 +1,117 @@
+groups:
+  - name: newsintel_alerts
+    interval: 60s
+    rules:
+      # ── Ingestion Pipeline ────────────────────────────────────────
+      - alert: IngestionStalled
+        expr: rate(newsintel_articles_ingested_total[15m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No articles ingested in the last 30 minutes"
+          description: "The ingestion pipeline may be stalled. Check source fetchers and Celery workers."
+
+      - alert: HighDuplicateRate
+        expr: >
+          rate(newsintel_articles_deduplicated_total[1h])
+          / (rate(newsintel_articles_ingested_total[1h]) + 0.001) > 0.5
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 50% of articles are duplicates"
+          description: "High deduplication rate may indicate source overlap or broken content hashing."
+
+      # ── Alert System ──────────────────────────────────────────────
+      - alert: CriticalAlertsUnacknowledged
+        expr: newsintel_alerts_open{severity="critical"} > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} critical alerts unacknowledged for 15+ minutes"
+          description: "Critical alerts require immediate analyst attention."
+
+      - alert: HighAlertVolume
+        expr: rate(newsintel_alerts_triggered_total[1h]) > 50
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alert trigger rate exceeds 50/hr"
+          description: "Unusually high alert volume. Check keyword rules for overly broad patterns."
+
+      # ── External Service Health ───────────────────────────────────
+      - alert: OpenSearchLatencyHigh
+        expr: >
+          histogram_quantile(0.95,
+            rate(newsintel_external_request_duration_seconds_bucket{service="opensearch"}[5m])
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OpenSearch p95 latency > 5s"
+          description: "OpenSearch queries are slow. Check cluster health and index sizes."
+
+      - alert: Neo4jErrors
+        expr: rate(newsintel_external_request_errors_total{service="neo4j"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Neo4j errors detected"
+          description: "Graph database is returning errors. Check Neo4j connectivity and memory."
+
+      - alert: ExternalServiceDown
+        expr: rate(newsintel_external_request_errors_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "External service {{ $labels.service }} has sustained errors"
+          description: "Service {{ $labels.service }} ({{ $labels.operation }}) is failing. Check connectivity."
+
+      # ── Source Health ─────────────────────────────────────────────
+      - alert: SourceFetchFailures
+        expr: rate(newsintel_source_fetch_errors_total[1h]) > 5
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Source fetch error rate > 5/hr for {{ $labels.source_type }}"
+          description: "Multiple source fetches failing. Sources may be unreachable."
+
+      - alert: NoActiveSources
+        expr: sum(newsintel_active_sources) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No active sources"
+          description: "All sources appear inactive. Check source configuration."
+
+      # ── Django / Backend ──────────────────────────────────────────
+      - alert: HighErrorRate
+        expr: >
+          rate(django_http_responses_total_by_status_total{status=~"5.."}[5m])
+          / rate(django_http_responses_total_by_status_total[5m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend 5xx error rate > 5%"
+          description: "High server error rate detected. Check application logs."
+
+      - alert: HighLatency
+        expr: >
+          histogram_quantile(0.95,
+            rate(django_http_requests_latency_seconds_by_view_method_bucket[5m])
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend p95 latency > 2s"
+          description: "API response times are degraded."

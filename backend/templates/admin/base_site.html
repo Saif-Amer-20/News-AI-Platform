@@ -1,0 +1,42 @@
+{% extends "admin/base.html" %}
+{% load static i18n %}
+
+{% block extrahead %}{{ block.super }}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'admin/css/ops-console.css' %}?v=20260411-admin-redesign-5">
+<meta name="color-scheme" content="dark">
+{% endblock %}
+
+{% block title %}{{ title }} — NewsIntel Ops{% endblock %}
+
+{% block branding %}
+<a href="{% url 'admin:index' %}" class="ni-brand" id="site-name">
+  <span class="ni-brand-mark">NI</span>
+  <span class="ni-brand-copy">
+    <span class="ni-brand-label">{% translate "Operations Admin" %}</span>
+    <span class="ni-brand-title">NewsIntel Ops</span>
+  </span>
+</a>
+{% endblock %}
+
+{% block usertools %}
+{% if has_permission %}
+<div class="ni-userbar">
+  <span class="ni-userbar-user">{{ user.get_username }}</span>
+  <div class="ni-userbar-links">
+    {% if site_url %}
+    <a href="{{ site_url }}" class="ni-userbar-link">{% translate "View site" %}</a>
+    {% endif %}
+    {% if user.has_usable_password %}
+    <a href="{% url 'admin:password_change' %}" class="ni-userbar-link">{% translate "Password" %}</a>
+    {% endif %}
+    <form method="post" action="{% url 'admin:logout' %}" class="ni-userbar-form">
+      {% csrf_token %}
+      <button type="submit" class="ni-userbar-button">{% translate "Log out" %}</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

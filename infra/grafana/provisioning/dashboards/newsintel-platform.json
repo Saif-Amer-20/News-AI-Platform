@@ -1,0 +1,181 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Articles Ingested (rate/5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(newsintel_articles_ingested_total[5m])",
+          "legendFormat": "{{source_type}} - {{source_name}}"
+        }
+      ]
+    },
+    {
+      "title": "Open Alerts by Severity",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "newsintel_alerts_open",
+          "legendFormat": "{{severity}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Open Cases by Priority",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "newsintel_cases_open",
+          "legendFormat": "{{priority}}"
+        }
+      ]
+    },
+    {
+      "title": "Article Quality Score Distribution",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(newsintel_article_quality_score_bucket[1h])",
+          "legendFormat": "{{le}}"
+        }
+      ]
+    },
+    {
+      "title": "Event Confidence Score Distribution",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(newsintel_event_confidence_score_bucket[1h])",
+          "legendFormat": "{{le}}"
+        }
+      ]
+    },
+    {
+      "title": "External Service Latency (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(newsintel_external_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "{{service}} - {{operation}}"
+        }
+      ]
+    },
+    {
+      "title": "External Service Errors (rate/5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "rate(newsintel_external_request_errors_total[5m])",
+          "legendFormat": "{{service}} - {{operation}}"
+        }
+      ]
+    },
+    {
+      "title": "Source Fetch Duration (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(newsintel_source_fetch_duration_seconds_bucket[5m]))",
+          "legendFormat": "{{source_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Source Fetch Errors (rate/5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "rate(newsintel_source_fetch_errors_total[5m])",
+          "legendFormat": "{{source_type}} - {{error_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Alert Response Time (p50/p95/p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(newsintel_alert_response_time_seconds_bucket[1h]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(newsintel_alert_response_time_seconds_bucket[1h]))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(newsintel_alert_response_time_seconds_bucket[1h]))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "title": "Active Sources by Type",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "expr": "newsintel_active_sources",
+          "legendFormat": "{{source_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Alerts Triggered (rate/1h)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "targets": [
+        {
+          "expr": "rate(newsintel_alerts_triggered_total[1h])",
+          "legendFormat": "{{alert_type}} - {{severity}}"
+        }
+      ]
+    },
+    {
+      "title": "Entities Extracted (rate/5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "targets": [
+        {
+          "expr": "rate(newsintel_entities_extracted_total[5m])",
+          "legendFormat": "{{entity_type}}"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["newsintel", "platform"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "News Intelligence Platform",
+  "uid": "newsintel-main",
+  "version": 1
+}

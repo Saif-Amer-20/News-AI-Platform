@@ -1,0 +1,49 @@
+# ── Environment & secrets ──────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Python ─────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+*.sqlite3
+*.db
+
+# ── Frontend ───────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# ── Backend ────────────────────────────────────
+backend/staticfiles/
+backend/media/
+
+# ── Data volumes (keep folder structure) ───────
+data/*
+!data/.gitkeep
+
+# ── IDE / OS ───────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Temp / scratch files ──────────────────────
+_req.json
+*.tmp
+*.bak
+
