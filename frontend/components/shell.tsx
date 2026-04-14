@@ -13,6 +13,7 @@ import {
   Search,
   Activity,
   Newspaper,
+  Brain,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -28,6 +29,8 @@ const NAV_ITEMS = [
   { href: "/alerts",    label: "Alerts",     icon: Bell },
   { href: "/cases",     label: "Cases",      icon: FolderOpen },
   { href: "/search",    label: "Search",     icon: Search },
+  { section: "Learning" },
+  { href: "/learning",  label: "Self-Learning", icon: Brain },
 ] as const;
 
 export function Sidebar() {

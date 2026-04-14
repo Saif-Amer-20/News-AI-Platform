@@ -41,6 +41,12 @@ urlpatterns = [
     path("api/v1/graph/", include("sources.urls_graph")),
     path("api/v1/search/", include("sources.urls_search")),
 
+    # ── Early Warning & Predictive Intelligence ───────────────
+    path("api/v1/early-warning/", include("sources.urls_early_warning")),
+
+    # ── Self-Learning Intelligence Layer ──────────────────────
+    path("api/v1/learning/", include("sources.urls_learning")),
+
     # ── Legacy explore namespace (kept for backward compat) ───
     path("api/v1/explore/", include("sources.urls_explore")),
 

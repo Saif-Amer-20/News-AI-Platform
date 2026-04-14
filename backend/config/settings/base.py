@@ -173,6 +173,52 @@ CELERY_BEAT_SCHEDULE = {
         "task": "sources.tasks.bootstrap_graph_schema_task",
         "schedule": 86400.0,  # daily — idempotent
     },
+    "generate-intel-assessments": {
+        "task": "sources.tasks.generate_intel_assessments_task",
+        "schedule": 1800.0,  # every 30 minutes
+    },
+    "run-anomaly-detection": {
+        "task": "sources.tasks.run_anomaly_detection_task",
+        "schedule": 600.0,  # every 10 minutes
+    },
+    "run-signal-correlation": {
+        "task": "sources.tasks.run_signal_correlation_task",
+        "schedule": 900.0,  # every 15 minutes
+    },
+    "run-predictive-scoring": {
+        "task": "sources.tasks.run_predictive_scoring_task",
+        "schedule": 1200.0,  # every 20 minutes
+    },
+    "run-historical-pattern-matching": {
+        "task": "sources.tasks.run_historical_pattern_matching_task",
+        "schedule": 3600.0,  # every hour
+    },
+    "run-geo-radar": {
+        "task": "sources.tasks.run_geo_radar_task",
+        "schedule": 900.0,  # every 15 minutes
+    },
+
+    # ── Self-Learning Intelligence Layer ──────────────────────
+    "auto-evaluate-predictions": {
+        "task": "sources.tasks.auto_evaluate_predictions_task",
+        "schedule": 3600.0,  # every hour
+    },
+    "update-source-reputations": {
+        "task": "sources.tasks.update_source_reputations_task",
+        "schedule": 7200.0,  # every 2 hours
+    },
+    "run-adaptive-learning-cycle": {
+        "task": "sources.tasks.run_adaptive_learning_cycle_task",
+        "schedule": 14400.0,  # every 4 hours
+    },
+    "capture-learning-records": {
+        "task": "sources.tasks.capture_learning_records_task",
+        "schedule": 3600.0,  # every hour
+    },
+    "bootstrap-adaptive-thresholds": {
+        "task": "sources.tasks.bootstrap_adaptive_thresholds_task",
+        "schedule": 86400.0,  # daily — idempotent
+    },
 }
 
 OPENSEARCH_URL = env("OPENSEARCH_URL", "http://opensearch:9200")

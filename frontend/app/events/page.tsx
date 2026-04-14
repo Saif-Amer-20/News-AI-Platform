@@ -15,11 +15,17 @@ import {
 } from "lucide-react";
 import { ArticlePreviewPanel } from "@/components/article-preview";
 import Link from "next/link";
+import { FeedbackPanel } from "@/components/feedback-panel";
 import type {
   EventSummary, EventEntity, EventSource, RelatedEvent, EventTimeline,
-  ConflictAnalysis,
+  ConflictAnalysis, IntelAssessment, EventEarlyWarning,
 } from "@/lib/types";
-import { EVENT_TYPES } from "@/lib/types";
+import {
+  EVENT_TYPES, VERIFICATION_LABELS, VERIFICATION_COLORS,
+  EARLY_WARNING_ANOMALY_LABELS, RISK_TREND_LABELS, RISK_TREND_COLORS,
+  CORRELATION_TYPE_LABELS, CORRELATION_STRENGTH_COLORS,
+  SEVERITY_BADGE,
+} from "@/lib/types";
 
 type ArticleBrief = { id: number; title: string; published_at: string; source__name: string; importance_score: number };
 type StoryBrief = { story_id: number; title: string; story_key: string; article_count: number; importance_score: number };
@@ -44,7 +50,7 @@ function EventsPageInner() {
   const [ordering, setOrdering] = useState("-importance_score");
 
   // Detail tabs
-  const [detailTab, setDetailTab] = useState<"overview" | "entities" | "articles" | "stories" | "sources" | "timeline" | "related" | "narratives" | "geo" | "alerts">("overview");
+  const [detailTab, setDetailTab] = useState<"overview" | "entities" | "articles" | "stories" | "sources" | "timeline" | "related" | "narratives" | "geo" | "alerts" | "intel" | "early_warning" | "feedback">("overview");
   const [entities, setEntities] = useState<EventEntity[]>([]);
   const [articles, setArticles] = useState<ArticleBrief[]>([]);
   const [stories, setStories] = useState<StoryBrief[]>([]);
@@ -53,6 +59,9 @@ function EventsPageInner() {
   const [related, setRelated] = useState<RelatedEvent[]>([]);
   const [narratives, setNarratives] = useState<ConflictAnalysis | null>(null);
   const [linkedAlerts, setLinkedAlerts] = useState<LinkedAlert[]>([]);
+  const [intelAssessment, setIntelAssessment] = useState<IntelAssessment | null>(null);
+  const [intelGenerating, setIntelGenerating] = useState(false);
+  const [earlyWarningData, setEarlyWarningData] = useState<EventEarlyWarning | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Drawers / modals
@@ -132,6 +141,16 @@ function EventsPageInner() {
       api<{ results: LinkedAlert[] }>(`/events/${id}/alerts/`)
         .then((d) => setLinkedAlerts(d.results ?? []))
         .catch(() => setLinkedAlerts([]))
+        .finally(() => setDetailLoading(false));
+    } else if (detailTab === "intel") {
+      api<IntelAssessment>(`/events/${id}/intel-assessment/`)
+        .then(setIntelAssessment)
+        .catch(() => setIntelAssessment(null))
+        .finally(() => setDetailLoading(false));
+    } else if (detailTab === "early_warning") {
+      api<EventEarlyWarning>(`/events/${id}/early-warning/`)
+        .then(setEarlyWarningData)
+        .catch(() => setEarlyWarningData(null))
         .finally(() => setDetailLoading(false));
     } else {
       setDetailLoading(false);
@@ -272,6 +291,9 @@ function EventsPageInner() {
                   ["alerts", "Alerts"],
                   ["timeline", "Timeline"],
                   ["related", "Related"],
+                  ["intel", "Intel"],
+                  ["early_warning", "⚡ Early Warning"],
+                  ["feedback", "🧠 Feedback"],
                 ] as const).map(([key, label]) => (
                   <button
                     key={key}
@@ -318,6 +340,43 @@ function EventsPageInner() {
                     )}
                     {detailTab === "alerts" && (
                       <AlertsTab alerts={linkedAlerts} />
+                    )}
+                    {detailTab === "intel" && (
+                      <IntelTab
+                        eventId={selected.id}
+                        assessment={intelAssessment}
+                        generating={intelGenerating}
+                        onGenerate={async () => {
+                          setIntelGenerating(true);
+                          try {
+                            const res = await api<IntelAssessment>(`/events/${selected.id}/intel-assessment/`, { method: "POST" });
+                            setIntelAssessment(res);
+                          } catch { /* empty */ } finally {
+                            setIntelGenerating(false);
+                          }
+                        }}
+                        onRegenerate={async () => {
+                          setIntelGenerating(true);
+                          try {
+                            const res = await api<IntelAssessment>(`/events/${selected.id}/intel-assessment/?force=1`, { method: "POST" });
+                            setIntelAssessment(res);
+                          } catch { /* empty */ } finally {
+                            setIntelGenerating(false);
+                          }
+                        }}
+                      />
+                    )}
+                    {detailTab === "early_warning" && (
+                      <EarlyWarningTab data={earlyWarningData} />
+                    )}
+                    {detailTab === "feedback" && selectedId && (
+                      <div style={{ padding: "1rem 0" }}>
+                        <FeedbackPanel
+                          targetType="event"
+                          targetId={selectedId}
+                          allowedTypes={["confirmed", "false_positive", "misleading", "useful"]}
+                        />
+                      </div>
                     )}
                   </>
                 )}
@@ -564,6 +623,499 @@ function AlertsTab({ alerts }: { alerts: LinkedAlert[] }) {
           <ChevronRight size={14} className="tab-list-arrow" />
         </a>
       ))}
+    </div>
+  );
+}
+
+/* ── Intel Tab ─────────────────────────────────────────────── */
+
+function IntelTab({
+  eventId,
+  assessment,
+  generating,
+  onGenerate,
+  onRegenerate,
+}: {
+  eventId: number;
+  assessment: IntelAssessment | null;
+  generating: boolean;
+  onGenerate: () => void;
+  onRegenerate: () => void;
+}) {
+  if (!assessment) {
+    return (
+      <div className="tab-overview" style={{ textAlign: "center", padding: "2rem" }}>
+        <Brain size={32} style={{ margin: "0 auto 0.75rem", opacity: 0.5 }} />
+        <p style={{ marginBottom: "1rem", color: "#64748b" }}>No intelligence assessment yet for this event.</p>
+        <button className="action-btn action-btn--primary" onClick={onGenerate} disabled={generating}>
+          {generating ? "Generating…" : "Generate Assessment"}
+        </button>
+      </div>
+    );
+  }
+
+  if (assessment.status === "failed") {
+    return (
+      <div className="tab-overview" style={{ textAlign: "center", padding: "2rem" }}>
+        <p style={{ color: "#ef4444", marginBottom: "0.5rem" }}>Assessment failed</p>
+        <p style={{ color: "#64748b", fontSize: "0.85rem", marginBottom: "1rem" }}>{assessment.error_message}</p>
+        <button className="action-btn" onClick={onRegenerate} disabled={generating}>
+          {generating ? "Retrying…" : "Retry"}
+        </button>
+      </div>
+    );
+  }
+
+  const cred = parseFloat(assessment.credibility_score);
+  const conf = parseFloat(assessment.confidence_score);
+  const esc = parseFloat(assessment.escalation_probability);
+  const cont = parseFloat(assessment.continuation_probability);
+  const hidden = parseFloat(assessment.hidden_link_probability);
+  const verColor = VERIFICATION_COLORS[assessment.verification_status] || "#6b7280";
+  const verLabel = VERIFICATION_LABELS[assessment.verification_status] || assessment.verification_status;
+
+  return (
+    <div className="intel-assessment">
+      {/* Regenerate button */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }}>
+        <button className="action-btn" onClick={onRegenerate} disabled={generating} style={{ fontSize: "0.75rem" }}>
+          {generating ? "Regenerating…" : "↻ Regenerate"}
+        </button>
+      </div>
+
+      {/* ── Diffusion / Coverage ─────────────────── */}
+      <section className="intel-section">
+        <h4 className="intel-section-title">📊 Story Diffusion</h4>
+        <div className="intel-stats-row">
+          <div className="intel-stat">
+            <span className="intel-stat-num">{assessment.coverage_count}</span>
+            <span className="intel-stat-label">Articles</span>
+          </div>
+          <div className="intel-stat">
+            <span className="intel-stat-num">{assessment.distinct_source_count}</span>
+            <span className="intel-stat-label">Sources</span>
+          </div>
+          <div className="intel-stat">
+            <span className="intel-stat-num">{assessment.first_seen ? new Date(assessment.first_seen).toLocaleDateString() : "—"}</span>
+            <span className="intel-stat-label">First Seen</span>
+          </div>
+          <div className="intel-stat">
+            <span className="intel-stat-num">{assessment.last_seen ? new Date(assessment.last_seen).toLocaleDateString() : "—"}</span>
+            <span className="intel-stat-label">Last Seen</span>
+          </div>
+        </div>
+
+        {/* Source spread */}
+        {assessment.source_list.length > 0 && (
+          <div className="intel-source-list">
+            <h5>Source Spread</h5>
+            <div className="intel-source-grid">
+              {assessment.source_list.map((s) => (
+                <div key={s.source_id} className="intel-source-card">
+                  <strong>{s.name}</strong>
+                  <span className="badge badge-gray">{s.country || "—"}</span>
+                  <span style={{ fontSize: "0.8rem", color: "#64748b" }}>{s.articles} articles · trust {s.trust.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Publication timeline */}
+        {assessment.publication_timeline.length > 0 && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <h5>Publication Timeline</h5>
+            <div className="intel-timeline-mini">
+              {assessment.publication_timeline.slice(0, 15).map((t, i) => (
+                <div key={i} className="timeline-mini-entry">
+                  <div className="timeline-mini-dot" />
+                  <div className="timeline-mini-content">
+                    <span className="timeline-mini-time">{t.ts ? new Date(t.ts).toLocaleString() : "—"}</span>
+                    <span className="timeline-mini-title">{t.title}</span>
+                    <span className="timeline-mini-meta">{t.source}</span>
+                  </div>
+                </div>
+              ))}
+              {assessment.publication_timeline.length > 15 && (
+                <div style={{ fontSize: "0.8rem", color: "#64748b", padding: "0.25rem 0 0 1.5rem" }}>
+                  … and {assessment.publication_timeline.length - 15} more
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Cross-Source Comparison ───────────────── */}
+      <section className="intel-section">
+        <h4 className="intel-section-title">🔀 Cross-Source Comparison</h4>
+
+        {/* Claims */}
+        {assessment.claims.length > 0 && (
+          <div className="intel-claims">
+            <h5>Claims ({assessment.claims.length})</h5>
+            {assessment.claims.map((c, i) => (
+              <div key={i} className="intel-claim-row">
+                <span className={`badge ${c.status === "agreed" ? "badge-green" : c.status === "contradicted" ? "badge-red" : "badge-amber"}`}>
+                  {c.status}
+                </span>
+                <span className="intel-claim-text">{c.claim}</span>
+                <span className="intel-claim-sources">{c.sources.join(", ")}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Agreements */}
+        {assessment.agreements.length > 0 && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <h5>✅ Agreements</h5>
+            <ul className="intel-bullet-list">
+              {assessment.agreements.map((a, i) => <li key={i}>{a}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {/* Contradictions */}
+        {assessment.contradictions.length > 0 && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <h5>⚠️ Contradictions</h5>
+            {assessment.contradictions.map((c, i) => (
+              <div key={i} className="intel-contradiction-card">
+                <div><strong>{c.source_a}:</strong> {c.claim_a}</div>
+                <div style={{ color: "#ef4444", fontWeight: 600, fontSize: "0.8rem" }}>vs</div>
+                <div><strong>{c.source_b}:</strong> {c.claim_b}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Missing details */}
+        {assessment.missing_details.length > 0 && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <h5>❓ Missing Details</h5>
+            <ul className="intel-bullet-list">
+              {assessment.missing_details.map((m, i) => <li key={i}>{m}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {/* Late emerging */}
+        {assessment.late_emerging_claims.length > 0 && (
+          <div style={{ marginTop: "0.75rem" }}>
+            <h5>🕐 Late-Emerging Claims</h5>
+            <ul className="intel-bullet-list">
+              {assessment.late_emerging_claims.map((l, i) => <li key={i}>{l}</li>)}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      {/* ── AI Assessment ────────────────────────── */}
+      <section className="intel-section">
+        <h4 className="intel-section-title">🧠 AI Assessment</h4>
+        {assessment.summary && (
+          <div className="intel-text-block">
+            <h5>Summary</h5>
+            <p>{assessment.summary}</p>
+            {assessment.summary_ar && <p className="intel-arabic">{assessment.summary_ar}</p>}
+          </div>
+        )}
+        {assessment.source_agreement_summary && (
+          <div className="intel-text-block">
+            <h5>Source Agreement</h5>
+            <p>{assessment.source_agreement_summary}</p>
+            {assessment.source_agreement_summary_ar && <p className="intel-arabic">{assessment.source_agreement_summary_ar}</p>}
+          </div>
+        )}
+        {assessment.dominant_narrative && (
+          <div className="intel-text-block">
+            <h5>Dominant Narrative</h5>
+            <p>{assessment.dominant_narrative}</p>
+            {assessment.dominant_narrative_ar && <p className="intel-arabic">{assessment.dominant_narrative_ar}</p>}
+          </div>
+        )}
+        {assessment.uncertain_elements && (
+          <div className="intel-text-block">
+            <h5>Uncertain Elements</h5>
+            <p>{assessment.uncertain_elements}</p>
+            {assessment.uncertain_elements_ar && <p className="intel-arabic">{assessment.uncertain_elements_ar}</p>}
+          </div>
+        )}
+        {assessment.analyst_reasoning && (
+          <div className="intel-text-block">
+            <h5>Analyst Reasoning</h5>
+            <p>{assessment.analyst_reasoning}</p>
+            {assessment.analyst_reasoning_ar && <p className="intel-arabic">{assessment.analyst_reasoning_ar}</p>}
+          </div>
+        )}
+      </section>
+
+      {/* ── Credibility & Forecast ────────────────── */}
+      <section className="intel-section">
+        <h4 className="intel-section-title">🛡️ Credibility & Forecast</h4>
+        <div className="intel-stats-row">
+          <div className="intel-stat">
+            <span className="intel-stat-num" style={{ color: verColor }}>{(cred * 100).toFixed(0)}%</span>
+            <span className="intel-stat-label">Credibility</span>
+          </div>
+          <div className="intel-stat">
+            <span className="intel-stat-num">{(conf * 100).toFixed(0)}%</span>
+            <span className="intel-stat-label">Confidence</span>
+          </div>
+          <div className="intel-stat">
+            <span className="intel-stat-num" style={{ background: verColor, color: "#fff", padding: "2px 8px", borderRadius: "4px", fontSize: "0.8rem" }}>{verLabel}</span>
+            <span className="intel-stat-label">Status</span>
+          </div>
+        </div>
+
+        {/* Credibility factors */}
+        {assessment.credibility_factors && (
+          <div className="intel-factors">
+            <h5>Factors</h5>
+            <div className="intel-factor-grid">
+              <div className="intel-factor-item">Source Diversity: <strong>{assessment.credibility_factors.source_diversity}</strong></div>
+              <div className="intel-factor-item">Coverage Volume: <strong>{assessment.credibility_factors.coverage_volume}</strong></div>
+              <div className="intel-factor-item">Contradictions: <strong>{assessment.credibility_factors.contradiction_count}</strong></div>
+              <div className="intel-factor-item">Agreements: <strong>{assessment.credibility_factors.agreement_count}</strong></div>
+              <div className="intel-factor-item">Time Span: <strong>{assessment.credibility_factors.time_span_hours}h</strong></div>
+            </div>
+          </div>
+        )}
+
+        {/* Probability bars */}
+        <div style={{ marginTop: "1rem" }}>
+          <h5>Forecast Probabilities</h5>
+          <ProbabilityBar label="Escalation" value={esc} color="#ef4444" />
+          <ProbabilityBar label="Continuation" value={cont} color="#f59e0b" />
+          <ProbabilityBar label="Hidden Links" value={hidden} color="#8b5cf6" />
+        </div>
+
+        {assessment.monitoring_recommendation && (
+          <div className="intel-text-block" style={{ marginTop: "0.75rem" }}>
+            <h5>📡 Monitoring Recommendation</h5>
+            <p>{assessment.monitoring_recommendation}</p>
+          </div>
+        )}
+      </section>
+
+      {/* Meta */}
+      <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "1rem", textAlign: "right" }}>
+        Model: {assessment.model_used} · Generated: {assessment.generated_at ? new Date(assessment.generated_at).toLocaleString() : "—"}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Early Warning Tab ───────────────────────────────────── */
+function EarlyWarningTab({ data }: { data: EventEarlyWarning | null }) {
+  if (!data) return <p className="empty-message">No early warning data available.</p>;
+
+  const ps = data.predictive_score;
+  const sevBadge: Record<string, string> = { low: "badge-gray", medium: "badge-amber", high: "badge-red", critical: "badge-red" };
+
+  return (
+    <div className="ew-tab">
+      {/* ── Predictive Score ──────────────────── */}
+      {ps && (
+        <section className="intel-section">
+          <h4 className="intel-section-title">📊 Predictive Score</h4>
+
+          {/* Risk trend badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+            <span style={{ color: RISK_TREND_COLORS[ps.risk_trend] ?? "#94a3b8", fontWeight: 700, fontSize: "1.1rem" }}>
+              {RISK_TREND_LABELS[ps.risk_trend] ?? ps.risk_trend}
+            </span>
+            <span className="badge badge-blue" style={{ fontSize: "0.75rem" }}>
+              Priority {(parseFloat(ps.monitoring_priority) * 100).toFixed(0)}%
+            </span>
+          </div>
+
+          {/* Probability bars */}
+          <EWProbBar label="Escalation" value={parseFloat(ps.escalation_probability)} color="#ef4444" />
+          <EWProbBar label="Continuation" value={parseFloat(ps.continuation_probability)} color="#f59e0b" />
+          <EWProbBar label="Misleading" value={parseFloat(ps.misleading_probability)} color="#8b5cf6" />
+          <EWProbBar label="Monitoring" value={parseFloat(ps.monitoring_priority)} color="#3b82f6" />
+
+          {/* Factor breakdown */}
+          <div style={{ marginTop: "1rem" }}>
+            <h5>Factor Breakdown</h5>
+            <div className="intel-factor-grid">
+              <div className="intel-factor-item">Anomaly: <strong>{(parseFloat(ps.anomaly_factor) * 100).toFixed(0)}%</strong></div>
+              <div className="intel-factor-item">Correlation: <strong>{(parseFloat(ps.correlation_factor) * 100).toFixed(0)}%</strong></div>
+              <div className="intel-factor-item">Historical: <strong>{(parseFloat(ps.historical_factor) * 100).toFixed(0)}%</strong></div>
+              <div className="intel-factor-item">Source Diversity: <strong>{(parseFloat(ps.source_diversity_factor) * 100).toFixed(0)}%</strong></div>
+              <div className="intel-factor-item">Velocity: <strong>{(parseFloat(ps.velocity_factor) * 100).toFixed(0)}%</strong></div>
+            </div>
+          </div>
+
+          {/* Reasoning */}
+          {ps.reasoning && (
+            <div className="intel-text-block" style={{ marginTop: "0.75rem" }}>
+              <h5>AI Reasoning</h5>
+              <p>{ps.reasoning}</p>
+              {ps.reasoning_ar && <p className="intel-arabic">{ps.reasoning_ar}</p>}
+            </div>
+          )}
+
+          {/* Weak signals */}
+          {ps.weak_signals.length > 0 && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <h5>⚡ Weak Signals ({ps.weak_signals.length})</h5>
+              <div className="ew-weak-signals">
+                {ps.weak_signals.map((ws, i) => (
+                  <div key={i} className="ew-weak-signal-card">
+                    <span className={`badge ${ws.source === "anomaly" ? "badge-red" : ws.source === "correlation" ? "badge-amber" : "badge-blue"}`} style={{ fontSize: "0.7rem" }}>
+                      {ws.source}
+                    </span>
+                    <span className="ew-ws-text">{ws.signal}</span>
+                    <span className="ew-ws-weight">{(ws.weight * 100).toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.5rem", textAlign: "right" }}>
+            Model: {ps.model_used} · Scored: {ps.scored_at ? new Date(ps.scored_at).toLocaleString() : "—"}
+          </div>
+        </section>
+      )}
+
+      {/* ── Anomalies ────────────────────────── */}
+      {data.anomalies.length > 0 && (
+        <section className="intel-section">
+          <h4 className="intel-section-title">🔴 Anomalies ({data.anomalies.length})</h4>
+          <div className="ew-anomaly-list">
+            {data.anomalies.map((a) => (
+              <div key={a.id} className="ew-anomaly-card">
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" }}>
+                  <span className={`badge ${sevBadge[a.severity] ?? "badge-gray"}`}>{a.severity}</span>
+                  <span className="badge badge-blue" style={{ fontSize: "0.7rem" }}>
+                    {EARLY_WARNING_ANOMALY_LABELS[a.anomaly_type] ?? a.anomaly_type}
+                  </span>
+                  <span className={`badge ${a.status === "active" ? "badge-green" : "badge-gray"}`} style={{ fontSize: "0.7rem" }}>
+                    {a.status}
+                  </span>
+                </div>
+                <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>{a.title}</div>
+                <div style={{ fontSize: "0.85rem", color: "#94a3b8" }}>{a.description}</div>
+                <div className="ew-anomaly-metrics">
+                  <span>Baseline: {a.baseline_value.toFixed(1)}</span>
+                  <span>Current: {a.current_value.toFixed(1)}</span>
+                  <span>Deviation: ×{a.deviation_factor.toFixed(2)}</span>
+                  <span>Confidence: {(parseFloat(a.confidence) * 100).toFixed(0)}%</span>
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.25rem" }}>
+                  Detected: {new Date(a.detected_at).toLocaleString()}
+                  {a.location_country && ` · ${a.location_country}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Correlations ─────────────────────── */}
+      {data.correlations.length > 0 && (
+        <section className="intel-section">
+          <h4 className="intel-section-title">🔗 Signal Correlations ({data.correlations.length})</h4>
+          <div className="ew-corr-list">
+            {data.correlations.map((c) => (
+              <div key={c.id} className="ew-corr-card">
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
+                  <span className="badge badge-blue" style={{ fontSize: "0.7rem" }}>
+                    {CORRELATION_TYPE_LABELS[c.correlation_type] ?? c.correlation_type}
+                  </span>
+                  <span style={{ color: CORRELATION_STRENGTH_COLORS[c.strength] ?? "#6b7280", fontWeight: 600, fontSize: "0.85rem" }}>
+                    {c.strength.toUpperCase()}
+                  </span>
+                  <span style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
+                    Score: {(parseFloat(c.correlation_score) * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div style={{ fontWeight: 600, marginBottom: "0.2rem" }}>{c.title}</div>
+                {c.reasoning && <div style={{ fontSize: "0.85rem", color: "#94a3b8" }}>{c.reasoning}</div>}
+                <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.25rem" }}>
+                  Detected: {new Date(c.detected_at).toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Historical Patterns ──────────────── */}
+      {data.historical_patterns.length > 0 && (
+        <section className="intel-section">
+          <h4 className="intel-section-title">📜 Historical Patterns ({data.historical_patterns.length})</h4>
+          <div className="ew-pattern-list">
+            {data.historical_patterns.map((p) => (
+              <div key={p.id} className="ew-pattern-card">
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
+                  <span className="badge badge-blue">{p.pattern_name}</span>
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                    Similarity: {(parseFloat(p.similarity_score) * 100).toFixed(0)}%
+                  </span>
+                </div>
+                {p.matched_event_title && (
+                  <div style={{ fontSize: "0.85rem", color: "#94a3b8", marginBottom: "0.25rem" }}>
+                    Matched event: <strong>{p.matched_event_title}</strong>
+                  </div>
+                )}
+                {p.matching_dimensions.length > 0 && (
+                  <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap", marginBottom: "0.3rem" }}>
+                    {p.matching_dimensions.map((d, i) => (
+                      <span key={i} className="badge badge-gray" style={{ fontSize: "0.7rem" }}>{d}</span>
+                    ))}
+                  </div>
+                )}
+                {p.historical_outcome && (
+                  <div style={{ fontSize: "0.85rem", marginBottom: "0.2rem" }}>
+                    <strong>Historical Outcome:</strong> {p.historical_outcome}
+                  </div>
+                )}
+                {p.predicted_trajectory && (
+                  <div className="intel-text-block">
+                    <h5>Predicted Trajectory</h5>
+                    <p>{p.predicted_trajectory}</p>
+                    {p.predicted_trajectory_ar && <p className="intel-arabic">{p.predicted_trajectory_ar}</p>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Empty state */}
+      {!ps && data.anomalies.length === 0 && data.correlations.length === 0 && data.historical_patterns.length === 0 && (
+        <p className="empty-message">No early warning signals detected for this event yet.</p>
+      )}
+    </div>
+  );
+}
+
+function EWProbBar({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.4rem" }}>
+      <span style={{ width: "100px", fontSize: "0.8rem", color: "#64748b" }}>{label}</span>
+      <div style={{ flex: 1, background: "#1e293b", borderRadius: "4px", height: "14px", overflow: "hidden" }}>
+        <div style={{ width: `${(value * 100).toFixed(0)}%`, background: color, height: "100%", borderRadius: "4px", transition: "width 0.3s" }} />
+      </div>
+      <span style={{ width: "40px", fontSize: "0.8rem", fontWeight: 600 }}>{(value * 100).toFixed(0)}%</span>
+    </div>
+  );
+}
+
+function ProbabilityBar({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.4rem" }}>
+      <span style={{ width: "100px", fontSize: "0.8rem", color: "#64748b" }}>{label}</span>
+      <div style={{ flex: 1, background: "#1e293b", borderRadius: "4px", height: "14px", overflow: "hidden" }}>
+        <div style={{ width: `${(value * 100).toFixed(0)}%`, background: color, height: "100%", borderRadius: "4px", transition: "width 0.3s" }} />
+      </div>
+      <span style={{ width: "40px", fontSize: "0.8rem", fontWeight: 600 }}>{(value * 100).toFixed(0)}%</span>
     </div>
   );
 }

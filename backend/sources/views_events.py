@@ -29,12 +29,18 @@ from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from .models import Article, ArticleEntity, Entity, Event, Source, Story
+from .models import Article, ArticleEntity, Entity, Event, EventIntelAssessment, Source, Story
 from .serializers import (
+    AnomalyDetectionSerializer,
     ArticleListSerializer,
     EntitySerializer,
     EventDetailSerializer,
+    EventIntelAssessmentSerializer,
     EventListSerializer,
+    GeoRadarZoneSerializer,
+    HistoricalPatternSerializer,
+    PredictiveScoreSerializer,
+    SignalCorrelationSerializer,
     StoryListSerializer,
 )
 
@@ -549,3 +555,85 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
             for a in alerts_qs
         ]
         return Response({"results": results})
+
+    # ── Intelligence assessment ───────────────────────────────
+
+    @action(detail=True, methods=["get", "post"], url_path="intel-assessment")
+    def intel_assessment(self, request, pk=None):
+        """GET returns existing assessment; POST generates / regenerates."""
+        event = self.get_object()
+
+        if request.method == "GET":
+            try:
+                obj = EventIntelAssessment.objects.get(event=event)
+            except EventIntelAssessment.DoesNotExist:
+                return Response(
+                    {"detail": "No assessment yet. POST to generate."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            return Response(EventIntelAssessmentSerializer(obj).data)
+
+        # POST — generate / regenerate
+        from services.intel_assessment_service import (
+            generate_intel_assessment,
+            regenerate_intel_assessment,
+        )
+
+        force = request.query_params.get("force", "").lower() in ("1", "true")
+        if force:
+            obj = regenerate_intel_assessment(event)
+        else:
+            obj = generate_intel_assessment(event)
+
+        http_status = (
+            status.HTTP_200_OK
+            if obj.status == EventIntelAssessment.Status.COMPLETED
+            else status.HTTP_202_ACCEPTED
+        )
+        return Response(EventIntelAssessmentSerializer(obj).data, status=http_status)
+
+    # ── Early Warning per event ────────────────────────────────
+
+    @action(detail=True, methods=["get"], url_path="early-warning")
+    def early_warning(self, request, pk=None):
+        """Combined early warning data for a single event."""
+        from .models import (
+            AnomalyDetection,
+            GeoRadarZone,
+            HistoricalPattern,
+            PredictiveScore,
+            SignalCorrelation,
+        )
+
+        event = self.get_object()
+
+        # Anomalies
+        anomalies = AnomalyDetection.objects.filter(
+            Q(event=event) | Q(related_event_ids__contains=[event.id]),
+            status=AnomalyDetection.Status.ACTIVE,
+        ).order_by("-detected_at")[:10]
+
+        # Correlations
+        correlations = SignalCorrelation.objects.filter(
+            Q(event_a=event) | Q(event_b=event),
+        ).order_by("-correlation_score")[:10]
+
+        # Predictive score
+        try:
+            pred_score = PredictiveScore.objects.get(event=event)
+            pred_data = PredictiveScoreSerializer(pred_score).data
+        except PredictiveScore.DoesNotExist:
+            pred_data = None
+
+        # Historical patterns
+        patterns = HistoricalPattern.objects.filter(
+            event=event,
+        ).order_by("-similarity_score")[:5]
+
+        return Response({
+            "event_id": event.id,
+            "anomalies": AnomalyDetectionSerializer(anomalies, many=True).data,
+            "correlations": SignalCorrelationSerializer(correlations, many=True).data,
+            "predictive_score": pred_data,
+            "historical_patterns": HistoricalPatternSerializer(patterns, many=True).data,
+        })

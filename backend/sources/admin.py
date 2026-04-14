@@ -7,17 +7,23 @@ from django.utils import timezone
 from core.admin import ActorStampedAdminMixin
 
 from .models import (
+    AdaptiveThreshold,
+    AnalystFeedback,
     Article,
     ArticleEntity,
     ArticleTranslation,
     Entity,
     Event,
+    EventIntelAssessment,
+    LearningRecord,
+    OutcomeRecord,
     ParsedArticleCandidate,
     RawItem,
     Source,
     SourceFetchError,
     SourceFetchRun,
     SourceHealthEvent,
+    SourceReputationLog,
     Story,
 )
 
@@ -610,3 +616,71 @@ class ArticleTranslationAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(EventIntelAssessment)
+class EventIntelAssessmentAdmin(admin.ModelAdmin):
+    list_display = ("event", "status", "credibility_score", "verification_status", "generated_at")
+    list_filter = ("status", "verification_status")
+    search_fields = ("event__title",)
+    autocomplete_fields = ("event",)
+    list_per_page = 50
+    readonly_fields = (
+        "event", "coverage_count", "distinct_source_count", "first_seen", "last_seen",
+        "credibility_score", "confidence_score", "verification_status",
+        "escalation_probability", "continuation_probability", "hidden_link_probability",
+        "model_used", "status", "generated_at", "error_message",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Self-Learning Intelligence Layer
+# ═══════════════════════════════════════════════════════════════
+
+
+@admin.register(AnalystFeedback)
+class AnalystFeedbackAdmin(admin.ModelAdmin):
+    list_display = ("id", "target_type", "target_id", "feedback_type", "analyst", "created_at")
+    list_filter = ("target_type", "feedback_type")
+    search_fields = ("comment",)
+    list_per_page = 50
+    readonly_fields = ("context_snapshot",)
+
+
+@admin.register(OutcomeRecord)
+class OutcomeRecordAdmin(admin.ModelAdmin):
+    list_display = ("id", "target_type", "target_id", "accuracy_status", "resolved_at", "created_at")
+    list_filter = ("accuracy_status", "target_type")
+    list_per_page = 50
+    readonly_fields = ("prediction_snapshot", "outcome_snapshot")
+
+
+@admin.register(SourceReputationLog)
+class SourceReputationLogAdmin(admin.ModelAdmin):
+    list_display = ("id", "source", "previous_trust", "new_trust", "change_delta", "reason", "created_at")
+    list_filter = ("reason", "is_rollback")
+    search_fields = ("source__name",)
+    autocomplete_fields = ("source",)
+    list_per_page = 50
+    readonly_fields = ("evidence",)
+
+
+@admin.register(AdaptiveThreshold)
+class AdaptiveThresholdAdmin(admin.ModelAdmin):
+    list_display = ("param_name", "param_type", "current_value", "default_value", "version", "is_active")
+    list_filter = ("param_type", "is_active")
+    search_fields = ("param_name",)
+    list_per_page = 50
+    readonly_fields = ("evidence",)
+
+
+@admin.register(LearningRecord)
+class LearningRecordAdmin(admin.ModelAdmin):
+    list_display = ("id", "record_type", "accuracy_label", "event", "created_at")
+    list_filter = ("record_type", "accuracy_label")
+    autocomplete_fields = ("event",)
+    list_per_page = 50
+    readonly_fields = ("features", "prediction_scores", "anomaly_metrics", "feedback_summary", "outcome")

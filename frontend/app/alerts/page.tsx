@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { AlertSummary, AlertDetail } from "@/lib/types";
+import { FeedbackPanel } from "@/components/feedback-panel";
 
 const FILTER_DEFS: FilterDef[] = [
   { key: "severity", label: "Severity", type: "select", options: [
@@ -216,6 +217,13 @@ function AlertsPageInner() {
                   </>
                 )}
               </div>
+
+              {/* Analyst Feedback */}
+              <FeedbackPanel
+                targetType="alert"
+                targetId={selected.id}
+                allowedTypes={["confirmed", "false_positive", "misleading", "useful", "escalated_correctly"]}
+              />
 
               {/* Comment */}
               <div className="detail-section">

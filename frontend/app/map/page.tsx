@@ -7,9 +7,9 @@ import { FilterBar, type FilterDef } from "@/components/filter-bar";
 import { ImportanceBadge, ConfidenceBadge } from "@/components/score-badge";
 import { ExplainabilityDrawer } from "@/components/explainability-drawer";
 import { AttachToCaseModal } from "@/components/attach-to-case-modal";
-import { MapPin, Globe, Layers, TrendingUp, Brain, FolderOpen } from "lucide-react";
-import type { MapFeature, HeatPoint, ClusterPoint } from "@/lib/types";
-import { EVENT_TYPES } from "@/lib/types";
+import { MapPin, Globe, Layers, TrendingUp, Brain, FolderOpen, Flame } from "lucide-react";
+import type { MapFeature, HeatPoint, ClusterPoint, GeoRadarZone } from "@/lib/types";
+import { EVENT_TYPES, TEMPORAL_TREND_LABELS } from "@/lib/types";
 
 const MAP_FILTERS: FilterDef[] = [
   { key: "event_type", label: "Event Type", type: "select", options: EVENT_TYPES.map((t) => ({ value: t, label: t })) },
@@ -21,10 +21,11 @@ function MapPageInner() {
   const [features, setFeatures] = useState<MapFeature[]>([]);
   const [heatPoints, setHeatPoints] = useState<HeatPoint[]>([]);
   const [clusters, setClusters] = useState<ClusterPoint[]>([]);
+  const [hotZones, setHotZones] = useState<GeoRadarZone[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<MapFeature | null>(null);
-  const [view, setView] = useState<"events" | "heat" | "clusters">("events");
+  const [view, setView] = useState<"events" | "heat" | "clusters" | "hotzones">("events");
 
   // Drawers / modals
   const [explainId, setExplainId] = useState<number | null>(null);
@@ -35,14 +36,16 @@ function MapPageInner() {
     try {
       const qs = new URLSearchParams();
       for (const [k, v] of Object.entries(filters)) { if (v) qs.set(k, v); }
-      const [ev, ht, cl] = await Promise.all([
+      const [ev, ht, cl, hz] = await Promise.all([
         api<{ type: string; features: MapFeature[] }>(`/map/events/?${qs.toString()}`).catch(() => ({ features: [] as MapFeature[] })),
         api<{ points: HeatPoint[] }>(`/map/heat/?${qs.toString()}`).catch(() => ({ points: [] as HeatPoint[] })),
         api<{ clusters: ClusterPoint[] }>(`/map/clusters/?${qs.toString()}`).catch(() => ({ clusters: [] as ClusterPoint[] })),
+        api<{ results: GeoRadarZone[] }>(`/early-warning/geo-radar/?status=active`).catch(() => ({ results: [] as GeoRadarZone[] })),
       ]);
       setFeatures((ev as { features: MapFeature[] }).features ?? []);
       setHeatPoints(ht.points ?? []);
       setClusters(cl.clusters ?? []);
+      setHotZones(hz.results ?? []);
     } catch { /* empty */ } finally { setLoading(false); }
   }, [filters]);
 
@@ -67,11 +70,12 @@ function MapPageInner() {
 
       {/* View toggle tabs */}
       <div className="detail-tabs" style={{ marginBottom: "1rem" }}>
-        {([["events", "Event Pins"], ["heat", "Heat Map"], ["clusters", "Clusters"]] as const).map(([key, label]) => (
+        {([["events", "Event Pins"], ["heat", "Heat Map"], ["clusters", "Clusters"], ["hotzones", "Hot Zones"]] as const).map(([key, label]) => (
           <button key={key} className={`detail-tab ${view === key ? "detail-tab--active" : ""}`} onClick={() => setView(key)}>
             {key === "events" && <MapPin size={14} />}
             {key === "heat" && <TrendingUp size={14} />}
             {key === "clusters" && <Layers size={14} />}
+            {key === "hotzones" && <Flame size={14} />}
             {label}
           </button>
         ))}
@@ -153,6 +157,29 @@ function MapPageInner() {
                       <span>{c.avg_lat.toFixed(2)}, {c.avg_lon.toFixed(2)}</span>
                     </div>
                     {c.location_country && <div style={{ fontSize: "0.78rem", color: "#64748b" }}>{c.location_country}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {view === "hotzones" && (
+              <div className="geo-country-grid">
+                {hotZones.length === 0 ? <div className="empty-state">No active hot zones</div> : hotZones.map((z) => (
+                  <div key={z.id} className="geo-country-card" style={{ borderLeft: `3px solid ${z.temporal_trend === "intensifying" ? "#ef4444" : z.temporal_trend === "stable" ? "#f59e0b" : "#22c55e"}` }}>
+                    <div className="geo-country-name"><Flame size={13} /> {z.location_name || z.location_country || "Zone"}</div>
+                    <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.3rem" }}>
+                      {TEMPORAL_TREND_LABELS[z.temporal_trend] ?? z.temporal_trend}
+                    </div>
+                    <div className="geo-country-stats">
+                      <span>{z.event_count} events</span>
+                      <span>{z.anomaly_count} anomalies</span>
+                    </div>
+                    <div style={{ fontSize: "0.78rem", color: "#64748b", marginTop: "0.2rem" }}>
+                      Radius: {z.radius_km.toFixed(1)} km · Concentration: {z.event_concentration.toFixed(1)}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "#475569", marginTop: "0.15rem" }}>
+                      {parseFloat(z.center_lat).toFixed(3)}°, {parseFloat(z.center_lon).toFixed(3)}°
+                    </div>
                   </div>
                 ))}
               </div>

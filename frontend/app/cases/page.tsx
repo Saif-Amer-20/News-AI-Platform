@@ -18,6 +18,7 @@ import { DecisionSupportPanel } from "@/components/decision-support-panel";
 import { AnomalyDetectionPanel } from "@/components/anomaly-detection-panel";
 import { StructuredNotesPanel } from "@/components/structured-notes-panel";
 import { CaseEvolutionTimeline, loadEvolution, appendEvolution } from "@/components/case-evolution-timeline";
+import { FeedbackPanel } from "@/components/feedback-panel";
 
 const FILTER_DEFS: FilterDef[] = [
   { key: "status", label: "Status", type: "select", options: [
@@ -41,7 +42,7 @@ function CasesPageInner() {
   const [filters, setFilters] = useState<Record<string, string>>({ status: "", priority: "" });
   const [detailTab, setDetailTab] = useState<
     "overview" | "events" | "entities" | "articles" | "notes" | "timeline" |
-    "hypotheses" | "reasoning" | "decisions" | "signals" | "structured-notes" | "evolution"
+    "hypotheses" | "reasoning" | "decisions" | "signals" | "structured-notes" | "evolution" | "feedback"
   >("overview");
   const [newNote, setNewNote] = useState("");
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
@@ -247,6 +248,7 @@ function CasesPageInner() {
                   ["articles", "Articles"], ["notes", "Notes"], ["timeline", "Activity"],
                   ["hypotheses", "Hypotheses"], ["reasoning", "Reasoning"], ["decisions", "Decisions"],
                   ["signals", "Signals"], ["structured-notes", "S-Notes"], ["evolution", "Evolution"],
+                  ["feedback", "🧠 Feedback"],
                 ] as const).map(([key, label]) => (
                   <button key={key} className={`detail-tab ${detailTab === key ? "detail-tab--active" : ""}`} onClick={() => setDetailTab(key)}>
                     {label}
@@ -409,6 +411,16 @@ function CasesPageInner() {
                     caseId={selectedId!}
                     entries={evolutionEntries}
                   />
+                )}
+
+                {detailTab === "feedback" && selectedId && (
+                  <div style={{ padding: "1rem 0" }}>
+                    <FeedbackPanel
+                      targetType="case"
+                      targetId={selectedId}
+                      allowedTypes={["confirmed", "false_positive", "useful", "escalated_correctly"]}
+                    />
+                  </div>
                 )}
               </div>
             </div>

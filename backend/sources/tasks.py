@@ -197,3 +197,132 @@ def reindex_articles_task(self) -> None:
         total += 1
 
     logger.info("reindex_articles_task: reindexed %d articles", total)
+
+
+@shared_task(bind=True, ignore_result=True)
+def generate_intel_assessments_task(self) -> None:
+    """Scheduled by Celery Beat. Generates intelligence assessments for
+    recent events that don't have one yet or whose assessment is stale."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from services.intel_assessment_service import generate_intel_assessment
+    from sources.models import Event, EventIntelAssessment
+
+    cutoff = timezone.now() - timedelta(hours=12)
+    events = (
+        Event.objects.filter(updated_at__gte=cutoff, source_count__gte=2)
+        .order_by("-importance_score")[:30]
+    )
+    generated = 0
+    for event in events:
+        existing = EventIntelAssessment.objects.filter(
+            event=event, status=EventIntelAssessment.Status.COMPLETED,
+        ).first()
+        if existing and existing.generated_at and existing.generated_at >= cutoff:
+            continue  # already fresh
+        generate_intel_assessment(event)
+        generated += 1
+
+    logger.info("generate_intel_assessments_task: processed %d events", generated)
+
+
+# ── Early Warning & Predictive Intelligence Tasks ─────────────────────────────
+
+
+@shared_task(bind=True, ignore_result=True)
+def run_anomaly_detection_task(self) -> None:
+    """Scheduled by Celery Beat. Scans for anomaly signals across all
+    dimensions: volume, source diversity, entity, location, narrative."""
+    from services.anomaly_detection_service import run_anomaly_scan
+
+    count = run_anomaly_scan()
+    logger.info("run_anomaly_detection_task: %d new anomalies detected", count)
+
+
+@shared_task(bind=True, ignore_result=True)
+def run_signal_correlation_task(self) -> None:
+    """Scheduled by Celery Beat. Correlates signals across events,
+    entities, locations, and time windows."""
+    from services.signal_correlation_service import run_signal_correlation
+
+    count = run_signal_correlation()
+    logger.info("run_signal_correlation_task: %d correlations created", count)
+
+
+@shared_task(bind=True, ignore_result=True)
+def run_predictive_scoring_task(self) -> None:
+    """Scheduled by Celery Beat. Computes predictive scores for recent events."""
+    from services.predictive_scoring_service import score_recent_events
+
+    scored = score_recent_events(hours=12, limit=100)
+    logger.info("run_predictive_scoring_task: scored %d events", scored)
+
+
+@shared_task(bind=True, ignore_result=True)
+def run_historical_pattern_matching_task(self) -> None:
+    """Scheduled by Celery Beat. Matches current events against historical patterns."""
+    from services.historical_pattern_service import match_patterns_recent
+
+    matched = match_patterns_recent(hours=12, limit=50)
+    logger.info("run_historical_pattern_matching_task: %d patterns matched", matched)
+
+
+@shared_task(bind=True, ignore_result=True)
+def run_geo_radar_task(self) -> None:
+    """Scheduled by Celery Beat. Updates geographic hot zones."""
+    from services.geo_radar_service import update_geo_radar
+
+    zones = update_geo_radar()
+    logger.info("run_geo_radar_task: %d zones updated", zones)
+
+
+# ═══════════════════════════════════════════════════════════════
+#  SELF-LEARNING INTELLIGENCE LAYER
+# ═══════════════════════════════════════════════════════════════
+
+
+@shared_task(bind=True, ignore_result=True)
+def auto_evaluate_predictions_task(self) -> None:
+    """Scheduled by Celery Beat. Auto-evaluates pending prediction outcomes."""
+    from services.outcome_tracking_service import auto_evaluate_predictions
+
+    evaluated = auto_evaluate_predictions(hours=72)
+    logger.info("auto_evaluate_predictions_task: %d outcomes evaluated", evaluated)
+
+
+@shared_task(bind=True, ignore_result=True)
+def update_source_reputations_task(self) -> None:
+    """Scheduled by Celery Beat. Recalculates source trust from feedback."""
+    from services.source_reputation_service import update_source_reputations
+
+    updated = update_source_reputations(days=30)
+    logger.info("update_source_reputations_task: %d sources updated", updated)
+
+
+@shared_task(bind=True, ignore_result=True)
+def run_adaptive_learning_cycle_task(self) -> None:
+    """Scheduled by Celery Beat. Adjusts anomaly thresholds & weights."""
+    from services.adaptive_scoring_service import run_adaptive_learning_cycle
+
+    adjusted = run_adaptive_learning_cycle(days=30)
+    logger.info("run_adaptive_learning_cycle_task: %d adjustments made", adjusted)
+
+
+@shared_task(bind=True, ignore_result=True)
+def capture_learning_records_task(self) -> None:
+    """Scheduled by Celery Beat. Snapshots scored events into learning store."""
+    from services.learning_data_service import capture_learning_records
+
+    captured = capture_learning_records(hours=24, limit=100)
+    logger.info("capture_learning_records_task: %d records captured", captured)
+
+
+@shared_task(bind=True, ignore_result=True)
+def bootstrap_adaptive_thresholds_task(self) -> None:
+    """Scheduled by Celery Beat. Ensures all default thresholds exist."""
+    from services.adaptive_scoring_service import bootstrap_adaptive_thresholds
+
+    created = bootstrap_adaptive_thresholds()
+    logger.info("bootstrap_adaptive_thresholds_task: %d thresholds bootstrapped", created)

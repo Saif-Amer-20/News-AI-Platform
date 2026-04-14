@@ -4,15 +4,26 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from .models import (
+    AdaptiveThreshold,
+    AnalystFeedback,
+    AnomalyDetection,
     Article,
     ArticleAISummary,
     ArticleEntity,
     ArticleTranslation,
     Entity,
     Event,
+    EventIntelAssessment,
+    GeoRadarZone,
+    HistoricalPattern,
+    LearningRecord,
+    OutcomeRecord,
+    PredictiveScore,
     RawItem,
+    SignalCorrelation,
     Source,
     SourceFetchRun,
+    SourceReputationLog,
     Story,
 )
 
@@ -345,3 +356,317 @@ class EventDetailSerializer(serializers.ModelSerializer):
 
     def get_source_correlation(self, obj):
         return (obj.metadata or {}).get("source_correlation")
+
+
+class EventIntelAssessmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EventIntelAssessment
+        fields = (
+            "id",
+            "event",
+            # Diffusion
+            "coverage_count",
+            "distinct_source_count",
+            "first_seen",
+            "last_seen",
+            "source_list",
+            "article_links",
+            "publication_timeline",
+            # Cross-source comparison
+            "claims",
+            "agreements",
+            "contradictions",
+            "missing_details",
+            "late_emerging_claims",
+            # AI assessment
+            "summary",
+            "source_agreement_summary",
+            "contradiction_summary",
+            "dominant_narrative",
+            "uncertain_elements",
+            "analyst_reasoning",
+            # Arabic
+            "summary_ar",
+            "source_agreement_summary_ar",
+            "contradiction_summary_ar",
+            "dominant_narrative_ar",
+            "uncertain_elements_ar",
+            "analyst_reasoning_ar",
+            # Credibility
+            "credibility_score",
+            "confidence_score",
+            "verification_status",
+            "credibility_factors",
+            # Predictions
+            "escalation_probability",
+            "continuation_probability",
+            "hidden_link_probability",
+            "monitoring_recommendation",
+            "forecast_signals",
+            # Meta
+            "model_used",
+            "status",
+            "generated_at",
+            "error_message",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+# ── Early Warning & Predictive Intelligence ──────────────────────────────────
+
+
+class AnomalyDetectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AnomalyDetection
+        fields = (
+            "id",
+            "anomaly_type",
+            "severity",
+            "status",
+            "title",
+            "description",
+            "metric_name",
+            "baseline_value",
+            "current_value",
+            "deviation_factor",
+            "confidence",
+            "event",
+            "entity",
+            "location_country",
+            "location_name",
+            "evidence",
+            "related_event_ids",
+            "related_entity_ids",
+            "detected_at",
+            "expires_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class SignalCorrelationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalCorrelation
+        fields = (
+            "id",
+            "correlation_type",
+            "strength",
+            "title",
+            "description",
+            "correlation_score",
+            "event_a",
+            "event_b",
+            "entity_ids",
+            "anomaly_ids",
+            "reasoning",
+            "evidence",
+            "supporting_signals",
+            "detected_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class PredictiveScoreSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PredictiveScore
+        fields = (
+            "id",
+            "event",
+            "escalation_probability",
+            "continuation_probability",
+            "misleading_probability",
+            "monitoring_priority",
+            "anomaly_factor",
+            "correlation_factor",
+            "historical_factor",
+            "source_diversity_factor",
+            "velocity_factor",
+            "reasoning",
+            "reasoning_ar",
+            "risk_trend",
+            "weak_signals",
+            "model_used",
+            "scored_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class HistoricalPatternSerializer(serializers.ModelSerializer):
+    matched_event_title = serializers.CharField(
+        source="matched_event.title", read_only=True, default=None,
+    )
+
+    class Meta:
+        model = HistoricalPattern
+        fields = (
+            "id",
+            "event",
+            "matched_event",
+            "matched_event_title",
+            "pattern_name",
+            "similarity_score",
+            "matching_dimensions",
+            "historical_outcome",
+            "predicted_trajectory",
+            "predicted_trajectory_ar",
+            "confidence",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class GeoRadarZoneSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GeoRadarZone
+        fields = (
+            "id",
+            "title",
+            "description",
+            "center_lat",
+            "center_lon",
+            "radius_km",
+            "location_country",
+            "location_name",
+            "event_count",
+            "event_concentration",
+            "avg_severity",
+            "anomaly_count",
+            "temporal_trend",
+            "event_ids",
+            "anomaly_ids",
+            "status",
+            "first_detected_at",
+            "last_activity_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+# ═══════════════════════════════════════════════════════════════
+#  SELF-LEARNING INTELLIGENCE LAYER
+# ═══════════════════════════════════════════════════════════════
+
+
+class AnalystFeedbackCreateSerializer(serializers.Serializer):
+    """Write serializer for submitting feedback."""
+
+    target_type = serializers.ChoiceField(choices=AnalystFeedback.TargetType.choices)
+    target_id = serializers.IntegerField(min_value=1)
+    feedback_type = serializers.ChoiceField(choices=AnalystFeedback.FeedbackType.choices)
+    comment = serializers.CharField(required=False, allow_blank=True, default="")
+    confidence = serializers.DecimalField(
+        max_digits=4, decimal_places=2, required=False, default=1.00,
+    )
+
+
+class AnalystFeedbackSerializer(serializers.ModelSerializer):
+    analyst_name = serializers.CharField(source="analyst.username", read_only=True, default="")
+
+    class Meta:
+        model = AnalystFeedback
+        fields = (
+            "id",
+            "target_type",
+            "target_id",
+            "feedback_type",
+            "comment",
+            "analyst_name",
+            "confidence",
+            "context_snapshot",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class OutcomeResolveSerializer(serializers.Serializer):
+    """Write serializer for resolving an outcome."""
+
+    target_type = serializers.ChoiceField(choices=AnalystFeedback.TargetType.choices)
+    target_id = serializers.IntegerField(min_value=1)
+    actual_outcome = serializers.CharField()
+    accuracy_status = serializers.ChoiceField(choices=OutcomeRecord.AccuracyStatus.choices)
+    resolution_notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class OutcomeRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OutcomeRecord
+        fields = (
+            "id",
+            "target_type",
+            "target_id",
+            "expected_outcome",
+            "actual_outcome",
+            "accuracy_status",
+            "resolved_at",
+            "resolution_notes",
+            "prediction_snapshot",
+            "outcome_snapshot",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class SourceReputationLogSerializer(serializers.ModelSerializer):
+    source_name = serializers.CharField(source="source.name", read_only=True)
+
+    class Meta:
+        model = SourceReputationLog
+        fields = (
+            "id",
+            "source",
+            "source_name",
+            "previous_trust",
+            "new_trust",
+            "change_delta",
+            "reason",
+            "evidence",
+            "is_rollback",
+            "rolled_back_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class AdaptiveThresholdSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AdaptiveThreshold
+        fields = (
+            "id",
+            "param_name",
+            "param_type",
+            "current_value",
+            "previous_value",
+            "default_value",
+            "min_value",
+            "max_value",
+            "adjustment_reason",
+            "version",
+            "is_active",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class LearningRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LearningRecord
+        fields = (
+            "id",
+            "event",
+            "record_type",
+            "features",
+            "prediction_scores",
+            "anomaly_metrics",
+            "feedback_summary",
+            "outcome",
+            "accuracy_label",
+            "created_at",
+        )
+        read_only_fields = fields
