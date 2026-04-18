@@ -16,6 +16,7 @@ import {
 import { ArticlePreviewPanel } from "@/components/article-preview";
 import Link from "next/link";
 import { FeedbackPanel } from "@/components/feedback-panel";
+import { Pagination } from "@/components/pagination";
 import type {
   EventSummary, EventEntity, EventSource, RelatedEvent, EventTimeline,
   ConflictAnalysis, IntelAssessment, EventEarlyWarning,
@@ -48,6 +49,8 @@ function EventsPageInner() {
     event_type: "", country: "", conflict: "", min_importance: "", min_sources: "",
   });
   const [ordering, setOrdering] = useState("-importance_score");
+  const [page, setPage] = useState(1);
+  const [count, setCount] = useState(0);
 
   // Detail tabs
   const [detailTab, setDetailTab] = useState<"overview" | "entities" | "articles" | "stories" | "sources" | "timeline" | "related" | "narratives" | "geo" | "alerts" | "intel" | "early_warning" | "feedback">("overview");
@@ -75,12 +78,17 @@ function EventsPageInner() {
       const qs = new URLSearchParams();
       for (const [k, v] of Object.entries(filters)) { if (v) qs.set(k, v); }
       if (ordering) qs.set("ordering", ordering);
-      const data = await api<{ results: EventSummary[] }>(`/events/?${qs.toString()}`);
+      qs.set("page", String(page));
+      const data = await api<{ results: EventSummary[]; count: number }>(`/events/?${qs.toString()}`);
       setEvents(data.results ?? []);
+      setCount(data.count ?? 0);
     } catch { /* empty */ } finally { setLoading(false); }
-  }, [filters, ordering]);
+  }, [filters, ordering, page]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Reset to page 1 when filters or ordering change
+  useEffect(() => { setPage(1); }, [filters, ordering]);
 
   // Auto-select event from highlight param (cross-context navigation)
   useEffect(() => {
@@ -222,6 +230,7 @@ function EventsPageInner() {
               </table>
             )}
           </div>
+          <Pagination page={page} count={count} onChange={setPage} />
         </div>
 
         {/* ── Event Detail ──────────────────────────────────── */}

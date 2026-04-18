@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { FilterBar, type FilterDef } from "@/components/filter-bar";
 import { ImportanceBadge } from "@/components/score-badge";
 import { Newspaper, Calendar, ArrowUpDown, ExternalLink } from "lucide-react";
+import { Pagination } from "@/components/pagination";
 
 type ArticleListItem = {
   id: number;
@@ -35,6 +36,8 @@ function ArticlesPageInner() {
     search: "", source: "", min_quality: "", min_importance: "",
   });
   const [ordering, setOrdering] = useState("-published_at");
+  const [page, setPage] = useState(1);
+  const [count, setCount] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,12 +45,17 @@ function ArticlesPageInner() {
       const qs = new URLSearchParams();
       for (const [k, v] of Object.entries(filters)) { if (v) qs.set(k, v); }
       if (ordering) qs.set("ordering", ordering);
-      const data = await api<{ results: ArticleListItem[] }>(`/articles/?${qs.toString()}`);
+      qs.set("page", String(page));
+      const data = await api<{ results: ArticleListItem[]; count: number }>(`/articles/?${qs.toString()}`);
       setArticles(data.results ?? []);
+      setCount(data.count ?? 0);
     } catch { /* empty */ } finally { setLoading(false); }
-  }, [filters, ordering]);
+  }, [filters, ordering, page]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Reset to page 1 when filters or ordering change
+  useEffect(() => { setPage(1); }, [filters, ordering]);
 
   const toggleSort = (field: string) => {
     setOrdering((o) => o === field ? `-${field}` : o === `-${field}` ? field : `-${field}`);
@@ -106,6 +114,7 @@ function ArticlesPageInner() {
           </table>
         )}
       </div>
+      <Pagination page={page} count={count} onChange={setPage} />
     </PageShell>
   );
 }

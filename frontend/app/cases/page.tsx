@@ -19,6 +19,7 @@ import { AnomalyDetectionPanel } from "@/components/anomaly-detection-panel";
 import { StructuredNotesPanel } from "@/components/structured-notes-panel";
 import { CaseEvolutionTimeline, loadEvolution, appendEvolution } from "@/components/case-evolution-timeline";
 import { FeedbackPanel } from "@/components/feedback-panel";
+import { Pagination } from "@/components/pagination";
 
 const FILTER_DEFS: FilterDef[] = [
   { key: "status", label: "Status", type: "select", options: [
@@ -47,6 +48,8 @@ function CasesPageInner() {
   const [newNote, setNewNote] = useState("");
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
   const [evolutionEntries, setEvolutionEntries] = useState<CaseEvolutionEntry[]>([]);
+  const [page, setPage] = useState(1);
+  const [count, setCount] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,12 +57,17 @@ function CasesPageInner() {
       const qs = new URLSearchParams();
       for (const [k, v] of Object.entries(filters)) { if (v) qs.set(k, v); }
       qs.set("ordering", "-updated_at");
-      const data = await api<{ results: CaseSummary[] }>(`/cases/?${qs.toString()}`);
+      qs.set("page", String(page));
+      const data = await api<{ results: CaseSummary[]; count: number }>(`/cases/?${qs.toString()}`);
       setCases(data.results ?? []);
+      setCount(data.count ?? 0);
     } catch { /* empty */ } finally { setLoading(false); }
-  }, [filters]);
+  }, [filters, page]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [filters]);
 
   const loadDetail = useCallback(async (id: number) => {
     try {
@@ -203,8 +211,7 @@ function CasesPageInner() {
                 <div className="case-card-date">Updated {new Date(c.updated_at).toLocaleDateString()}</div>
               </div>
             ))}
-          </div>
-        </div>
+          </div>          <Pagination page={page} count={count} onChange={setPage} />        </div>
 
         {/* ── Case Detail ───────────────────────────────── */}
         {detail && (

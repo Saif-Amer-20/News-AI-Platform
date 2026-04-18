@@ -14,6 +14,7 @@ import {
   Activity,
   Newspaper,
   Brain,
+  Network,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -22,7 +23,10 @@ const NAV_ITEMS = [
   { href: "/",          label: "Dashboard",  icon: LayoutDashboard },
   { href: "/events",    label: "Events",     icon: Radar },
   { href: "/articles",  label: "Articles",   icon: Newspaper },
-  { href: "/entities",  label: "Entities",   icon: Users },
+  { href: "/entities",              label: "Entities",         icon: Users },
+  { href: "/entities/intelligence", label: "Entity Intel",     icon: Network },
+  { href: "/entities/intelligence/graph",   label: "Graph Explorer",  icon: Network, indent: true },
+  { href: "/entities/intelligence/signals", label: "Signals",         icon: Bell, indent: true },
   { href: "/map",       label: "Map",        icon: Map },
   { href: "/timeline",  label: "Timeline",   icon: Clock },
   { section: "Operations" },
@@ -52,17 +56,16 @@ export function Sidebar() {
             );
           }
           const Icon = item.icon;
-          const active =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
+          const active = pathname === item.href;
+          const indent = "indent" in item && item.indent;
           return (
             <Link
               key={item.href}
               href={item.href}
               className={active ? "active" : ""}
+              style={indent ? { paddingLeft: "2.2rem", fontSize: "0.82rem" } : undefined}
             >
-              <Icon />
+              {indent ? <Icon size={14} /> : <Icon />}
               {item.label}
             </Link>
           );

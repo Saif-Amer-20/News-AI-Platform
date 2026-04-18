@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import type { AlertSummary, AlertDetail } from "@/lib/types";
 import { FeedbackPanel } from "@/components/feedback-panel";
+import { Pagination } from "@/components/pagination";
 
 const FILTER_DEFS: FilterDef[] = [
   { key: "severity", label: "Severity", type: "select", options: [
@@ -37,6 +38,8 @@ function AlertsPageInner() {
   const [detail, setDetail] = useState<AlertDetail | null>(null);
   const [stats, setStats] = useState<AlertStats | null>(null);
   const [commentText, setCommentText] = useState("");
+  const [page, setPage] = useState(1);
+  const [count, setCount] = useState(0);
 
   // Drawers
   const [explainId, setExplainId] = useState<number | null>(null);
@@ -48,16 +51,21 @@ function AlertsPageInner() {
       const qs = new URLSearchParams();
       for (const [k, v] of Object.entries(filters)) { if (v) qs.set(k, v); }
       qs.set("ordering", "-triggered_at");
+      qs.set("page", String(page));
       const [data, st] = await Promise.all([
-        api<{ results: AlertSummary[] }>(`/alerts/?${qs.toString()}`),
+        api<{ results: AlertSummary[]; count: number }>(`/alerts/?${qs.toString()}`),
         api<AlertStats>("/alerts/stats/").catch(() => null),
       ]);
       setAlerts(data.results ?? []);
+      setCount(data.count ?? 0);
       if (st) setStats(st);
     } catch { /* empty */ } finally { setLoading(false); }
-  }, [filters]);
+  }, [filters, page]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [filters]);
 
   useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
@@ -156,6 +164,7 @@ function AlertsPageInner() {
               </table>
             )}
           </div>
+          <Pagination page={page} count={count} onChange={setPage} />
         </div>
 
         {/* ── Alert Detail ──────────────────────────────────── */}

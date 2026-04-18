@@ -143,12 +143,15 @@ export type EntitySummary = {
   id: number;
   name: string;
   canonical_name?: string;
+  normalized_name?: string;
   entity_type: string;
   country: string;
   description: string;
   article_count: number;
   event_count: number;
   aliases?: string[];
+  merge_confidence?: string | number | null;
+  merge_method?: string | null;
 };
 
 export type EntityCoOccurrence = {
