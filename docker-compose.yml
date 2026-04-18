@@ -186,6 +186,8 @@ services:
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS}
       DJANGO_LOG_LEVEL: ${DJANGO_LOG_LEVEL}
+      CELERY_WORKER_CONCURRENCY: "2"
+      CELERY_LOG_LEVEL: "INFO"
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -209,6 +211,11 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
     networks:
       - platform-internal
       - platform-edge
