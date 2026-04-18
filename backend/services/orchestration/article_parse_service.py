@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
+import trafilatura
 from bs4 import BeautifulSoup
 from django.db import transaction
 
@@ -70,13 +71,31 @@ class ArticleParseService:
     # ── HTML-based extraction ─────────────────────────────────────────
 
     def _parse_html(self, raw_item: RawItem):
-        soup = BeautifulSoup(raw_item.html_raw, "lxml")
+        html = raw_item.html_raw
 
-        title = self._extract_title_from_soup(soup) or clean_text(raw_item.title_raw)
-        content = self._extract_content_from_soup(soup) or clean_text(raw_item.content_raw) or html_to_text(raw_item.html_raw)
-        published_at = self._extract_published_from_soup(soup) or parse_datetime_value(raw_item.metadata.get("published_at"))
-        author = self._extract_author_from_soup(soup) or clean_text(raw_item.metadata.get("author"))
-        image_url = self._extract_image_from_soup(soup) or raw_item.metadata.get("image_url", "")
+        # Primary: trafilatura for robust content extraction with boilerplate removal
+        content = ""
+        if html:
+            content = trafilatura.extract(html, favor_precision=True) or ""
+
+        # Fallback: existing BS4 extraction if trafilatura returns empty
+        soup = BeautifulSoup(html, "lxml") if html else None
+        if not content and soup:
+            content = self._extract_content_from_soup(soup) or clean_text(raw_item.content_raw) or html_to_text(raw_item.html_raw)
+        if not content:
+            content = clean_text(raw_item.content_raw)
+
+        # Metadata extraction stays with BS4 (reliable for structured meta tags)
+        if soup:
+            title = self._extract_title_from_soup(soup) or clean_text(raw_item.title_raw)
+            published_at = self._extract_published_from_soup(soup) or parse_datetime_value(raw_item.metadata.get("published_at"))
+            author = self._extract_author_from_soup(soup) or clean_text(raw_item.metadata.get("author"))
+            image_url = self._extract_image_from_soup(soup) or raw_item.metadata.get("image_url", "")
+        else:
+            title = clean_text(raw_item.title_raw)
+            published_at = parse_datetime_value(raw_item.metadata.get("published_at"))
+            author = clean_text(raw_item.metadata.get("author"))
+            image_url = raw_item.metadata.get("image_url", "")
 
         return title, content, published_at, author, image_url
 

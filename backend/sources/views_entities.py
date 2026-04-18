@@ -12,6 +12,11 @@ EntityExplorerViewSet (sources/views_explore.py) into a single cohesive API:
     GET    /api/v1/entities/{id}/mentions/            — article mention details
     GET    /api/v1/entities/{id}/network/             — entity network from Neo4j
     POST   /api/v1/entities/{id}/attach-case/         — link entity to a case
+
+Entity Intelligence Layer:
+    GET    /api/v1/entities/{id}/relationships/       — stored scored relationships
+    GET    /api/v1/entities/{id}/graph-data/          — D3-ready graph for this entity
+    GET    /api/v1/entities/{id}/influence/           — influence score + signals
 """
 from __future__ import annotations
 
@@ -22,7 +27,7 @@ from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from .models import Article, ArticleEntity, Entity, Event
+from .models import Article, ArticleEntity, Entity, EntityInfluenceScore, EntityRelationship, EntitySignal, Event
 from .serializers import (
     ArticleListSerializer,
     EntitySerializer,
@@ -406,3 +411,219 @@ class EntityViewSet(viewsets.ReadOnlyModelViewSet):
             },
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+    # ── Relationships (Intelligence Layer) ────────────────────────
+
+    @action(detail=True, methods=["get"])
+    def relationships(self, request, pk=None):
+        """Stored, scored co-occurrence relationships for this entity.
+
+        Query params:
+          min_strength  float  default 0.05
+          type          str    filter by relationship_type
+          ordering      str    strength_score | last_seen_at | co_occurrence_count
+          page / page_size
+        """
+        entity = self.get_object()
+        min_strength = float(request.query_params.get("min_strength", "0.05"))
+        rel_type = request.query_params.get("type")
+        ordering = request.query_params.get("ordering", "-strength_score")
+
+        # Validate ordering param to prevent injection
+        allowed_orderings = {
+            "strength_score", "-strength_score",
+            "last_seen_at", "-last_seen_at",
+            "co_occurrence_count", "-co_occurrence_count",
+        }
+        if ordering not in allowed_orderings:
+            ordering = "-strength_score"
+
+        from django.db.models import Q as DQ
+        qs = (
+            EntityRelationship.objects
+            .filter(
+                DQ(entity_a=entity) | DQ(entity_b=entity),
+                strength_score__gte=min_strength,
+            )
+            .select_related("entity_a", "entity_b")
+            .order_by(ordering)
+        )
+        if rel_type:
+            qs = qs.filter(relationship_type=rel_type)
+
+        page = self.paginate_queryset(qs)
+        items = page if page is not None else list(qs[:50])
+
+        data = []
+        for rel in items:
+            other = rel.entity_b if rel.entity_a_id == entity.id else rel.entity_a
+            data.append({
+                "relationship_id":    rel.id,
+                "entity_id":          other.id,
+                "entity_name":        other.canonical_name or other.name,
+                "entity_type":        other.entity_type,
+                "entity_country":     other.country,
+                "relationship_type":  rel.relationship_type,
+                "strength_score":     float(rel.strength_score),
+                "confidence":         float(rel.confidence),
+                "recency_score":      float(rel.recency_score),
+                "source_diversity":   float(rel.source_diversity_score),
+                "co_occurrence_count": rel.co_occurrence_count,
+                "growth_rate":        float(rel.growth_rate),
+                "last_seen_at":       rel.last_seen_at.isoformat() if rel.last_seen_at else None,
+                "first_seen_at":      rel.first_seen_at.isoformat() if rel.first_seen_at else None,
+            })
+
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response({
+            "entity_id":   entity.id,
+            "entity_name": entity.canonical_name or entity.name,
+            "relationships": data,
+        })
+
+    @action(detail=True, methods=["get"], url_path="graph-data")
+    def graph_data(self, request, pk=None):
+        """D3-ready graph payload centred on this entity.
+
+        Returns nodes + edges within ``depth`` hops.  Depth is capped at 2.
+        """
+        entity = self.get_object()
+        depth = min(int(request.query_params.get("depth", "1")), 2)
+        min_strength = float(request.query_params.get("min_strength", "0.05"))
+
+        from django.db.models import Q as DQ
+
+        # Hop 1: direct relationships
+        rels_1 = list(
+            EntityRelationship.objects
+            .filter(
+                DQ(entity_a=entity) | DQ(entity_b=entity),
+                strength_score__gte=min_strength,
+            )
+            .select_related("entity_a", "entity_b")
+            .order_by("-strength_score")[:50]
+        )
+
+        neighbour_ids = set()
+        for rel in rels_1:
+            neighbour_ids.add(rel.entity_a_id)
+            neighbour_ids.add(rel.entity_b_id)
+        neighbour_ids.discard(entity.id)
+
+        all_rels = list(rels_1)
+
+        if depth >= 2 and neighbour_ids:
+            rels_2 = list(
+                EntityRelationship.objects
+                .filter(
+                    DQ(entity_a_id__in=neighbour_ids) | DQ(entity_b_id__in=neighbour_ids),
+                    strength_score__gte=min_strength + 0.05,
+                )
+                .exclude(DQ(entity_a=entity) | DQ(entity_b=entity))
+                .select_related("entity_a", "entity_b")
+                .order_by("-strength_score")[:80]
+            )
+            all_rels.extend(rels_2)
+            for rel in rels_2:
+                neighbour_ids.add(rel.entity_a_id)
+                neighbour_ids.add(rel.entity_b_id)
+
+        # Build nodes dict
+        all_entity_ids = neighbour_ids | {entity.id}
+        entities = {
+            e.id: e
+            for e in Entity.objects.filter(id__in=all_entity_ids)
+        }
+        influence = {
+            inf.entity_id: inf
+            for inf in EntityInfluenceScore.objects.filter(entity_id__in=all_entity_ids)
+        }
+
+        nodes = []
+        for eid, ent in entities.items():
+            inf = influence.get(eid)
+            nodes.append({
+                "id":          eid,
+                "label":       ent.canonical_name or ent.name,
+                "type":        ent.entity_type,
+                "country":     ent.country,
+                "is_root":     eid == entity.id,
+                "influence":   float(inf.influence_score) if inf else 0.0,
+                "mentions_7d": inf.mentions_last_7d if inf else 0,
+                "growth_flag": inf.growth_flag if inf else False,
+            })
+
+        edges = []
+        seen_pairs: set[tuple[int, int]] = set()
+        for rel in all_rels:
+            pair = (rel.entity_a_id, rel.entity_b_id)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            edges.append({
+                "source":          rel.entity_a_id,
+                "target":          rel.entity_b_id,
+                "type":            rel.relationship_type,
+                "strength":        float(rel.strength_score),
+                "co_occurrences":  rel.co_occurrence_count,
+                "last_seen_at":    rel.last_seen_at.isoformat() if rel.last_seen_at else None,
+                "growth_rate":     float(rel.growth_rate),
+            })
+
+        return Response({
+            "entity_id":    entity.id,
+            "entity_name":  entity.canonical_name or entity.name,
+            "depth":        depth,
+            "node_count":   len(nodes),
+            "edge_count":   len(edges),
+            "nodes":        nodes,
+            "edges":        edges,
+        })
+
+    @action(detail=True, methods=["get"])
+    def influence(self, request, pk=None):
+        """Influence score, mention velocity, and recent signals for this entity."""
+        entity = self.get_object()
+
+        try:
+            inf = EntityInfluenceScore.objects.get(entity=entity)
+            inf_data = {
+                "degree_centrality":  float(inf.degree_centrality),
+                "weighted_degree":    float(inf.weighted_degree),
+                "mentions_last_24h":  inf.mentions_last_24h,
+                "mentions_last_7d":   inf.mentions_last_7d,
+                "mentions_last_30d":  inf.mentions_last_30d,
+                "velocity_score":     float(inf.velocity_score),
+                "growth_flag":        inf.growth_flag,
+                "influence_rank":     inf.influence_rank,
+                "influence_score":    float(inf.influence_score),
+                "scored_at":          inf.scored_at.isoformat(),
+            }
+        except EntityInfluenceScore.DoesNotExist:
+            inf_data = None
+
+        signals = list(
+            EntitySignal.objects
+            .filter(entity=entity)
+            .order_by("-created_at")
+            .values(
+                "id", "signal_type", "severity", "title",
+                "description", "metadata", "is_read", "created_at",
+            )[:10]
+        )
+        for s in signals:
+            s["created_at"] = s["created_at"].isoformat()
+
+        rel_count = EntityRelationship.objects.filter(
+            __import__("django.db.models", fromlist=["Q"]).Q(entity_a=entity)
+            | __import__("django.db.models", fromlist=["Q"]).Q(entity_b=entity)
+        ).count()
+
+        return Response({
+            "entity_id":         entity.id,
+            "entity_name":       entity.canonical_name or entity.name,
+            "relationship_count": rel_count,
+            "influence":         inf_data,
+            "recent_signals":    signals,
+        })

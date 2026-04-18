@@ -95,6 +95,7 @@ class RawItemService:
                 "image_url": normalized["image_url"],
                 "content_hash": normalized["content_hash"],
                 "quality_score": normalized.get("quality_score", 0),
+                "language": normalized.get("language", ""),
                 "metadata": normalized["metadata"],
             },
         )

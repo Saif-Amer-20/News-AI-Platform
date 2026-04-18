@@ -46,4 +46,9 @@ desktop.ini
 _req.json
 *.tmp
 *.bak
+old_base.py
+patch_settings.py
+query_entities.py
+backend/scripts/
+backend/services/orchestration/entity_relationship_service_v2.py
 

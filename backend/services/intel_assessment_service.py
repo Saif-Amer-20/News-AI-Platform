@@ -123,8 +123,13 @@ def generate_intel_assessment(event: Event) -> EventIntelAssessment:
         # 3. Build user prompt from articles
         user_msg = _build_user_prompt(event, articles)
 
-        # 4. Call LLM
-        parsed = _call_llm(api_key, user_msg)
+        # Detect dominant language across articles
+        languages = [getattr(a, "language", "") or "" for a in articles]
+        ar_count = sum(1 for lang in languages if lang.startswith("ar"))
+        dominant_lang = "ar" if ar_count > len(articles) / 2 else "en"
+
+        # 4. Call LLM with language-aware prompt
+        parsed = _call_llm(api_key, user_msg, dominant_lang)
 
         # 5. Populate cross-source comparison
         obj.claims = parsed.get("claims", [])
@@ -294,7 +299,7 @@ def _build_user_prompt(event: Event, articles: list[Article]) -> str:
     return "\n".join(parts)
 
 
-def _call_llm(api_key: str, user_msg: str) -> dict:
+def _call_llm(api_key: str, user_msg: str, language: str = "en") -> dict:
     """Call Groq API and parse the JSON response."""
     from openai import OpenAI
 
@@ -303,10 +308,14 @@ def _call_llm(api_key: str, user_msg: str) -> dict:
         base_url="https://api.groq.com/openai/v1",
     )
 
+    prompt = ASSESSMENT_PROMPT
+    if language == "ar":
+        prompt += "\n\nIMPORTANT: Write ALL text fields (summary, analyst_reasoning, monitoring_recommendation, etc.) in Arabic. Keep JSON keys in English."
+
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
-            {"role": "system", "content": ASSESSMENT_PROMPT},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": user_msg},
         ],
         max_tokens=4000,

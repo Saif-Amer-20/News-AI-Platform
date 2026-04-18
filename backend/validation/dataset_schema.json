@@ -1,0 +1,53 @@
+{
+  "schema_version": "validation_dataset_v2",
+  "description": "Data-driven validation schema for News Intelligence Platform. Uses ONLY real ingested articles from the platform database — no synthetic data.",
+  "version": "2.0.0",
+  "created": "2026-04-17",
+  "approach": "pseudo-ground-truth",
+  "sampling_method": {
+    "description": "Stratified sample from existing Articles table, grouped by language and source diversity. Ground truth is inferred from existing Story/Event/Entity relationships, duplicate flags, and content-hash collisions.",
+    "steps": [
+      "1. Query all articles with content length > 200 chars",
+      "2. Stratify by language (ar/en/other)",
+      "3. Stratify by source to ensure diversity",
+      "4. Include articles already linked to stories/events for cluster evaluation",
+      "5. Include articles flagged as duplicates for dedup evaluation",
+      "6. Include articles with extracted entities for NER evaluation",
+      "7. Include articles in events with conflict_flag for contradiction evaluation",
+      "8. Build pseudo-ground-truth from existing DB relationships"
+    ]
+  },
+  "pseudo_ground_truth_rules": {
+    "clustering": "Articles sharing the same story_id are ground-truth same-cluster. Articles in different stories under the same event_id are ground-truth related-cluster.",
+    "dedup": "Articles with is_duplicate=True and duplicate_of set are ground-truth duplicates. Articles sharing content_hash are ground-truth duplicates.",
+    "entities": "Entity consistency is measured by comparing entities extracted across articles in the same story — entities appearing in >50% of cluster articles are ground-truth for that cluster.",
+    "geo": "Events with location_country set provide ground-truth location for their linked articles.",
+    "contradiction": "Events with conflict_flag=True indicate contradiction exists among their articles."
+  },
+  "evaluation_record_schema": {
+    "article_id": "int — Article PK",
+    "language": "str — detected language",
+    "source_id": "int — Source FK",
+    "source_name": "str",
+    "content_length": "int — character count",
+    "has_story": "bool — linked to Story",
+    "story_id": "int | null",
+    "has_event": "bool — linked to Event via Story",
+    "event_id": "int | null",
+    "event_type": "str | null",
+    "is_duplicate": "bool",
+    "duplicate_of_id": "int | null",
+    "content_hash": "str",
+    "entity_count": "int — number of linked entities",
+    "entity_names": "list[str]",
+    "entity_types": "list[str]",
+    "gt_cluster": "str — story_id or 'unclustered'",
+    "gt_event_group": "str — event_id or 'no_event'",
+    "gt_location_country": "str | null — from event",
+    "gt_location_name": "str | null — from event",
+    "gt_has_conflict": "bool — from event.conflict_flag",
+    "quality_score": "float",
+    "importance_score": "float",
+    "published_at": "str | null — ISO 8601"
+  }
+}

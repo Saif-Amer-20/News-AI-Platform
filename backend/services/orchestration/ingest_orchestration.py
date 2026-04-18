@@ -211,6 +211,22 @@ class IngestOrchestrationService:
         # Step 7: Entity extraction (persons, locations, organisations)
         self.entity_extraction.extract_and_link(article)
 
+        # Step 7b: AI entity consolidation (async — does not block ingestion)
+        # Queues a Celery task that compares the new entities against existing
+        # canonical entities and auto-merges or routes to review queue.
+        try:
+            from sources.tasks import consolidate_entities_for_article_task
+            consolidate_entities_for_article_task.delay(article.id)
+        except Exception:
+            logger.debug("Entity consolidation task queue failed", exc_info=True)
+
+        # Step 7c: Entity relationship update (async — updates co-occurrence graph)
+        try:
+            from sources.tasks import build_entity_relationships_for_article_task
+            build_entity_relationships_for_article_task.delay(article.id)
+        except Exception:
+            logger.debug("Entity relationship task queue failed", exc_info=True)
+
         # Step 8: Story clustering (entity-aware + semantic similarity)
         story = self.story_clustering_orchestration.assign_story(article)
 

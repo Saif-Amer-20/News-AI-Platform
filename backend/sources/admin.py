@@ -13,6 +13,11 @@ from .models import (
     ArticleEntity,
     ArticleTranslation,
     Entity,
+    EntityInfluenceScore,
+    EntityMergeAudit,
+    EntityRelationship,
+    EntityReviewQueue,
+    EntitySignal,
     Event,
     EventIntelAssessment,
     LearningRecord,
@@ -684,3 +689,299 @@ class LearningRecordAdmin(admin.ModelAdmin):
     autocomplete_fields = ("event",)
     list_per_page = 50
     readonly_fields = ("features", "prediction_scores", "anomaly_metrics", "feedback_summary", "outcome")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  AI-Driven Entity Consolidation
+# ═══════════════════════════════════════════════════════════════
+
+def _confidence_badge(score) -> str:
+    """Render a colour-coded confidence badge."""
+    val = float(score)
+    if val >= 0.92:
+        bg = "#16a34a"  # green — auto-merge range
+    elif val >= 0.72:
+        bg = "#d97706"  # amber — review range
+    else:
+        bg = "#94a3b8"  # grey — keep separate
+    return format_html(
+        '<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
+        'font-size:0.75rem;font-weight:600;color:#fff;background:{bg};">{val:.3f}</span>',
+        bg=bg,
+        val=val,
+    )
+
+
+@admin.register(EntityReviewQueue)
+class EntityReviewQueueAdmin(admin.ModelAdmin):
+    """Review queue for ambiguous entity merge candidates."""
+
+    list_display = (
+        "candidate_name", "arrow", "matched_name",
+        "entity_type_display", "confidence_badge",
+        "merge_method", "status", "created_at",
+    )
+    list_filter = ("status", "merge_method", "candidate_entity__entity_type")
+    search_fields = (
+        "candidate_entity__name", "matched_entity__name", "explanation",
+    )
+    readonly_fields = (
+        "candidate_entity", "matched_entity",
+        "similarity_score", "context_score", "final_score",
+        "merge_method", "explanation", "supporting_article_ids",
+        "reviewed_by", "reviewed_at", "review_note",
+        "created_at", "updated_at",
+    )
+    list_per_page = 50
+    ordering = ("-final_score", "-created_at")
+    actions = ["approve_merge", "reject_merge"]
+
+    # ── Display helpers ─────────────────────────────────────────────────────
+
+    @admin.display(description="Candidate")
+    def candidate_name(self, obj):
+        return obj.candidate_entity.name
+
+    @admin.display(description="→")
+    def arrow(self, obj):
+        return format_html('<span style="color:#94a3b8">→</span>')
+
+    @admin.display(description="Matched Canonical")
+    def matched_name(self, obj):
+        return obj.matched_entity.name
+
+    @admin.display(description="Type")
+    def entity_type_display(self, obj):
+        return obj.candidate_entity.get_entity_type_display()
+
+    @admin.display(description="Score")
+    def confidence_badge(self, obj):
+        return _confidence_badge(obj.final_score)
+    confidence_badge.allow_tags = True
+
+    # ── Actions ─────────────────────────────────────────────────────────────
+
+    @admin.action(description="✅ Approve & execute merge")
+    def approve_merge(self, request, queryset):
+        from services.orchestration.entity_consolidation_service import EntityConsolidationService
+
+        service = EntityConsolidationService()
+        approved = 0
+        skipped = 0
+        for item in queryset.filter(status=EntityReviewQueue.Status.PENDING):
+            if service.process_review_queue_approval(item.pk, request.user):
+                approved += 1
+            else:
+                skipped += 1
+        self.message_user(
+            request,
+            f"{approved} merge(s) approved and executed; {skipped} skipped.",
+            messages.SUCCESS if approved else messages.WARNING,
+        )
+
+    @admin.action(description="❌ Reject merge (keep entities separate)")
+    def reject_merge(self, request, queryset):
+        from services.orchestration.entity_consolidation_service import EntityConsolidationService
+
+        service = EntityConsolidationService()
+        rejected = 0
+        for item in queryset.filter(status=EntityReviewQueue.Status.PENDING):
+            service.process_review_queue_rejection(item.pk, request.user, note="Bulk rejection")
+            rejected += 1
+        self.message_user(
+            request,
+            f"{rejected} merge proposal(s) rejected.",
+            messages.SUCCESS,
+        )
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(EntityMergeAudit)
+class EntityMergeAuditAdmin(admin.ModelAdmin):
+    """Read-only audit trail for all AI-executed entity merges."""
+
+    list_display = (
+        "source_entity_name", "arrow", "target_entity_name",
+        "source_entity_type", "confidence_badge",
+        "merge_method", "rolled_back_badge", "created_at",
+    )
+    list_filter = ("merge_method", "source_entity_type", "rolled_back")
+    search_fields = ("source_entity_name", "target_entity_name", "merge_reason")
+    readonly_fields = (
+        "source_entity_id", "source_entity_name", "source_entity_type",
+        "source_entity_canonical", "source_article_count", "source_aliases",
+        "target_entity", "target_entity_name",
+        "confidence", "merge_method", "merge_reason", "article_evidence",
+        "rolled_back", "rolled_back_at", "rolled_back_by", "rollback_note",
+        "created_at", "updated_at",
+    )
+    list_per_page = 50
+    ordering = ("-created_at",)
+    actions = ["rollback_merge_action"]
+
+    # ── Display helpers ─────────────────────────────────────────────────────
+
+    @admin.display(description="→")
+    def arrow(self, obj):
+        return format_html('<span style="color:#94a3b8">→</span>')
+
+    @admin.display(description="Confidence")
+    def confidence_badge(self, obj):
+        return _confidence_badge(obj.confidence)
+    confidence_badge.allow_tags = True
+
+    @admin.display(description="Status")
+    def rolled_back_badge(self, obj):
+        if obj.rolled_back:
+            return format_html(
+                '<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
+                'font-size:0.75rem;font-weight:600;color:#fff;background:#dc2626;">ROLLED BACK</span>'
+            )
+        return format_html(
+            '<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
+            'font-size:0.75rem;font-weight:600;color:#fff;background:#16a34a;">Active</span>'
+        )
+    rolled_back_badge.allow_tags = True
+
+    # ── Actions ─────────────────────────────────────────────────────────────
+
+    @admin.action(description="↩ Roll back selected merges")
+    def rollback_merge_action(self, request, queryset):
+        from services.orchestration.entity_consolidation_service import EntityConsolidationService
+
+        service = EntityConsolidationService()
+        rolled_back = 0
+        skipped = 0
+        for audit in queryset.filter(rolled_back=False):
+            if service.rollback_merge(audit.pk, request.user, note="Admin rollback"):
+                rolled_back += 1
+            else:
+                skipped += 1
+        self.message_user(
+            request,
+            f"{rolled_back} merge(s) rolled back; {skipped} skipped (already rolled back or target deleted).",
+            messages.SUCCESS if rolled_back else messages.WARNING,
+        )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False  # audit records are immutable
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Entity Intelligence Layer Admin
+# ═══════════════════════════════════════════════════════════════
+
+
+@admin.register(EntityRelationship)
+class EntityRelationshipAdmin(admin.ModelAdmin):
+    """View and browse stored entity co-occurrence relationships."""
+
+    list_display = (
+        "entity_a", "entity_b", "relationship_type_badge",
+        "strength_score", "confidence", "co_occurrence_count",
+        "source_diversity_score", "last_seen_at",
+    )
+    list_filter = ("relationship_type",)
+    search_fields = (
+        "entity_a__name", "entity_a__canonical_name",
+        "entity_b__name", "entity_b__canonical_name",
+    )
+    readonly_fields = (
+        "entity_a", "entity_b",
+        "strength_score", "confidence", "recency_score", "source_diversity_score",
+        "co_occurrence_count", "growth_rate", "prev_co_occurrence_count",
+        "relationship_type",
+        "first_seen_at", "last_seen_at",
+        "supporting_article_ids", "supporting_source_ids",
+        "created_at", "updated_at",
+    )
+    ordering = ("-strength_score",)
+    list_per_page = 50
+
+    @admin.display(description="Type")
+    def relationship_type_badge(self, obj):
+        colors = {
+            "political":  "#3b82f6",
+            "military":   "#ef4444",
+            "economic":   "#10b981",
+            "diplomatic": "#8b5cf6",
+            "conflict":   "#f97316",
+            "social":     "#06b6d4",
+            "unknown":    "#94a3b8",
+        }
+        bg = colors.get(obj.relationship_type, "#94a3b8")
+        return format_html(
+            '<span style="display:inline-block;padding:2px 7px;border-radius:4px;'
+            'font-size:0.72rem;font-weight:600;color:#fff;background:{bg};">{label}</span>',
+            bg=bg,
+            label=obj.get_relationship_type_display(),
+        )
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(EntityInfluenceScore)
+class EntityInfluenceScoreAdmin(admin.ModelAdmin):
+    """Cached influence metrics per entity."""
+
+    list_display = (
+        "entity", "influence_rank", "influence_score",
+        "degree_centrality", "velocity_score",
+        "mentions_last_24h", "mentions_last_7d",
+        "growth_flag", "scored_at",
+    )
+    list_filter = ("growth_flag",)
+    search_fields = ("entity__name", "entity__canonical_name")
+    readonly_fields = [f.name for f in EntityInfluenceScore._meta.get_fields() if hasattr(f, "name")]
+    ordering = ("influence_rank",)
+    list_per_page = 50
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(EntitySignal)
+class EntitySignalAdmin(admin.ModelAdmin):
+    """Entity intelligence signals feed."""
+
+    list_display = (
+        "title", "severity_badge", "signal_type", "entity",
+        "related_entity", "is_read", "created_at",
+    )
+    list_filter = ("signal_type", "severity", "is_read")
+    search_fields = ("title", "entity__name", "description")
+    readonly_fields = (
+        "entity", "signal_type", "severity", "title", "description",
+        "metadata", "related_entity", "expires_at", "created_at", "updated_at",
+    )
+    ordering = ("-created_at",)
+    list_per_page = 50
+    actions = ["mark_read_action"]
+
+    @admin.display(description="Severity")
+    def severity_badge(self, obj):
+        colors = {"high": "#dc2626", "medium": "#d97706", "low": "#16a34a"}
+        bg = colors.get(obj.severity, "#94a3b8")
+        return format_html(
+            '<span style="display:inline-block;padding:2px 7px;border-radius:4px;'
+            'font-size:0.72rem;font-weight:600;color:#fff;background:{bg};">{label}</span>',
+            bg=bg,
+            label=obj.get_severity_display(),
+        )
+
+    @admin.action(description="Mark selected signals as read")
+    def mark_read_action(self, request, queryset):
+        updated = queryset.update(is_read=True)
+        self.message_user(request, f"{updated} signal(s) marked as read.", messages.SUCCESS)
+
+    def has_add_permission(self, request):
+        return False

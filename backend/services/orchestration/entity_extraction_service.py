@@ -1,3 +1,5 @@
+"""Entity extraction service — local multilingual NER via transformers."""
+
 from __future__ import annotations
 
 import logging
@@ -6,53 +8,113 @@ import unicodedata
 from collections import Counter
 from decimal import Decimal
 
+from transformers import pipeline as hf_pipeline
+
 from sources.models import Article, ArticleEntity, Entity
 
+from .entity_post_processing_service import EntityPostProcessor
 from .entity_resolution_service import EntityResolutionService
 
 logger = logging.getLogger(__name__)
 
-# ── Regex-based Named Entity Recognition ─────────────────────────────────────
-# Production-grade NER would use spaCy / transformers. This regex+heuristic
-# approach works without external ML models and can be swapped out later.
+# Pre-downloaded into the Docker image (see Dockerfile).
+_NER_MODEL = "Davlan/xlm-roberta-base-ner-hrl"
 
-# Capitalised multi-word sequences likely to be proper nouns
-_PROPER_NOUN_RE = re.compile(
-    r"\b([A-Z][a-z]{2,}(?:\s+(?:al-|bin\s|von\s|de\s|van\s)?[A-Z][a-z]{2,}){1,4})\b"
+# Map model entity labels → our EntityType
+_LABEL_MAP = {
+    "PER": Entity.EntityType.PERSON,
+    "ORG": Entity.EntityType.ORGANIZATION,
+    "LOC": Entity.EntityType.LOCATION,
+}
+
+# ── Entity filtering constants ─────────────────────────────────────────────
+
+# Minimum NER model confidence score to accept an entity span
+_MIN_NER_CONFIDENCE = 0.90
+
+# Minimum character length for a valid entity name (after normalization)
+_MIN_ENTITY_LENGTH = 3
+
+# English + Arabic stopwords / generic words that the NER model frequently
+# mis-tags as entities.  Kept compact — covers the high-frequency noise.
+_ENTITY_STOPWORDS: set[str] = {
+    # English
+    "the", "a", "an", "this", "that", "it", "its", "he", "she", "they",
+    "we", "you", "his", "her", "their", "our", "my", "who", "which",
+    "what", "where", "when", "how", "why", "also", "just", "new", "said",
+    "says", "would", "could", "should", "may", "might", "will", "has",
+    "have", "had", "been", "being", "was", "were", "are", "but", "not",
+    "all", "any", "some", "more", "most", "than", "from", "with", "for",
+    "about", "after", "before", "between", "under", "over", "into",
+    "today", "yesterday", "tomorrow", "now", "then", "here", "there",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "january", "february", "march", "april", "june", "july", "august",
+    "september", "october", "november", "december",
+    "reuters", "associated press", "ap", "afp",
+    # Common boilerplate / website navigation entities
+    "google play", "apple store", "app store", "play store",
+    "follow us", "sign up", "log in", "subscribe",
+    "terms of service", "privacy policy", "cookie policy",
+    "cnn", "bbc", "nbc", "cbs", "abc", "fox news", "msnbc",
+    "al jazeera", "sky news",
+    # Arabic common words
+    "في", "من", "إلى", "على", "عن", "هذا", "هذه", "ذلك", "تلك",
+    "التي", "الذي", "الذين", "أن", "إن", "كان", "كانت", "قال", "قالت",
+    "بين", "بعد", "قبل", "خلال", "حتى", "منذ", "أيضا", "لكن",
+    "اليوم", "أمس", "غدا",
+}
+
+# Generic / common nouns that NER often tags as ORG or LOC
+_GENERIC_WORDS: set[str] = {
+    "government", "army", "military", "police", "ministry", "officials",
+    "state", "country", "region", "city", "capital", "airport", "hospital",
+    "university", "parliament", "congress", "senate", "court", "council",
+    "president", "minister", "king", "prince", "general", "commander",
+    "foreign", "defense", "interior", "spokesman", "spokesperson",
+    "الحكومة", "الجيش", "الشرطة", "الوزارة", "المسؤولين",
+    "الدولة", "المنطقة", "المدينة", "العاصمة", "الرئيس", "الوزير",
+}
+
+# Regex patterns that indicate boilerplate text sections (footer, nav, etc.)
+_BOILERPLATE_RE = re.compile(
+    r'(?i)(?:'
+    r'(?:download|get)\s+(?:the\s+)?(?:app|it)\s+(?:on|from|at)'
+    r'|follow\s+(?:us\s+)?on\s+(?:twitter|facebook|instagram|x|youtube|tiktok)'
+    r'|sign\s+up\s+(?:for\s+)?(?:our\s+)?(?:newsletter|email)'
+    r'|subscribe\s+(?:to\s+)?(?:our\s+)?(?:newsletter|channel)'
+    r'|manage\s+(?:your\s+)?(?:account|settings|preferences)'
+    r'|terms\s+(?:of\s+)?(?:service|use)\s*[\|·]'
+    r'|©\s*\d{4}'
+    r'|all\s+rights\s+reserved'
+    r'|click\s+here\s+to\s+'
+    r'|advertisement\b|sponsored\s+content'
+    r'|related\s+(?:articles?|stories|coverage)'
+    r'|more\s+(?:from|on)\s+(?:cnn|bbc|reuters|al\s+jazeera|nbc|abc|fox)'
+    r'|share\s+(?:this|on)\s+(?:twitter|facebook|email|whatsapp)'
+    r'|most\s+read\s+(?:stories|articles|news)'
+    r')',
 )
-
-# Organisation indicators
-_ORG_INDICATORS = {
-    "ministry", "department", "agency", "bureau", "commission", "committee",
-    "council", "authority", "corporation", "company", "group", "inc",
-    "ltd", "foundation", "institute", "university", "bank", "fund",
-    "union", "party", "army", "force", "forces", "nato", "united nations",
-    "un", "eu", "who", "imf", "opec", "cia", "fbi", "nsa", "pentagon",
-    "hamas", "hezbollah", "taliban", "isis", "isil",
-}
-
-# Person title indicators
-_PERSON_TITLES = {
-    "president", "minister", "prime minister", "secretary", "general",
-    "commander", "director", "chief", "chairman", "chairwoman",
-    "ambassador", "governor", "senator", "representative", "king",
-    "queen", "prince", "sheikh", "ayatollah", "pope", "dr", "prof",
-    "mr", "mrs", "ms",
-}
-
-# Location indicators
-_LOCATION_INDICATORS = {
-    "city", "province", "region", "district", "state", "capital",
-    "border", "strait", "sea", "ocean", "river", "mountain", "island",
-    "peninsula", "airport", "port", "base",
-}
 
 
 class EntityExtractionService:
-    """Extract persons, organizations, and locations from article text."""
+    """Extract persons, organizations, and locations using a local multilingual NER model."""
+
+    _ner_pipeline = None
 
     def __init__(self):
         self.entity_resolution = EntityResolutionService()
+        self.post_processor = EntityPostProcessor()
+
+    @classmethod
+    def _get_ner(cls):
+        if cls._ner_pipeline is None:
+            logger.info("Loading NER model: %s", _NER_MODEL)
+            cls._ner_pipeline = hf_pipeline(
+                "ner",
+                model=_NER_MODEL,
+                aggregation_strategy="simple",
+            )
+        return cls._ner_pipeline
 
     def extract_and_link(self, article: Article) -> list[ArticleEntity]:
         """Extract entities from article content and create DB records."""
@@ -62,128 +124,155 @@ class EntityExtractionService:
         if not raw_entities:
             return []
 
+        # ── Post-processing layer ──────────────────────────────────────────────
+        # Normalise names, filter noise, and deduplicate within this article's
+        # batch (e.g. "Trump" + "Donald Trump" → one canonical entity).
+        processed = self.post_processor.process(raw_entities)
+        if not processed:
+            return []
+
         linked: list[ArticleEntity] = []
 
-        for entity_name, entity_type, count, snippet in raw_entities:
-            normalized = self._normalize_entity_name(entity_name)
-            if len(normalized) < 2:
-                continue
+        for pe in processed:
+            # Use cleaned display_name for storage; resolve against registry.
+            canonical = self.entity_resolution.resolve_name(pe.display_name)
+            if canonical == pe.display_name.lower():
+                # No registry hit — use the post-processor's canonical key.
+                canonical = pe.canonical_name
 
-            # Resolve to canonical form via the alias registry
-            canonical = self.entity_resolution.resolve_name(entity_name)
+            normalized = self._normalize_entity_name(pe.display_name)
+            if len(normalized) < _MIN_ENTITY_LENGTH:
+                continue
 
             entity, created = Entity.objects.get_or_create(
                 normalized_name=normalized,
-                entity_type=entity_type,
+                entity_type=pe.entity_type,
                 defaults={
-                    "name": entity_name,
+                    "name": pe.display_name,
                     "canonical_name": canonical,
                 },
             )
-            # Backfill canonical_name on existing entities that lack it
+
+            # Merge new aliases into the existing entity's alias list.
+            if pe.aliases:
+                existing_aliases: set[str] = set(entity.aliases or [])
+                new_aliases = {a.lower() for a in pe.aliases} - existing_aliases - {normalized}
+                if new_aliases:
+                    entity.aliases = sorted(existing_aliases | new_aliases)
+                    entity.save(update_fields=["aliases", "updated_at"])
+
             if not created and not entity.canonical_name:
                 self.entity_resolution.resolve_entity(entity)
 
-            relevance = self._compute_relevance(count, len(text))
+            relevance = self._compute_relevance(pe.mention_count, len(text))
 
-            article_entity, created = ArticleEntity.objects.update_or_create(
+            article_entity, _ = ArticleEntity.objects.update_or_create(
                 article=article,
                 entity=entity,
                 defaults={
                     "relevance_score": relevance,
-                    "mention_count": count,
-                    "context_snippet": snippet[:500],
+                    "mention_count": pe.mention_count,
+                    "context_snippet": pe.context_snippet[:500],
                 },
             )
             linked.append(article_entity)
 
         logger.info(
-            "Extracted %d entities from article %s", len(linked), article.id
+            "Extracted %d entities from article %s (raw=%d, after post-processing=%d)",
+            len(linked), article.id, len(raw_entities), len(processed),
         )
         return linked
+
+    @staticmethod
+    def _strip_boilerplate(text: str) -> str:
+        """Remove boilerplate sections (footers, navigation, ads) before NER."""
+        # Cut at first boilerplate pattern occurrence
+        match = _BOILERPLATE_RE.search(text)
+        if match:
+            text = text[:match.start()]
+        # Also trim the last 15% of text which often contains footers/related links
+        max_len = int(len(text) * 0.85)
+        if len(text) > 600:  # only trim if text is long enough
+            text = text[:max_len]
+        return text.strip()
 
     def _extract_entities(
         self, text: str
     ) -> list[tuple[str, str, int, str]]:
         """Return list of (name, entity_type, mention_count, context_snippet)."""
-        results: list[tuple[str, str, int, str]] = []
-        seen_normalized: set[str] = set()
+        ner = self._get_ner()
 
-        # Find all proper-noun sequences
-        matches = _PROPER_NOUN_RE.finditer(text)
-        name_counter: Counter[str] = Counter()
-        name_first_context: dict[str, str] = {}
-        name_original: dict[str, str] = {}
+        # Strip boilerplate before truncation
+        cleaned = self._strip_boilerplate(text)
 
-        for match in matches:
-            raw_name = match.group(1).strip()
-            norm = self._normalize_entity_name(raw_name)
-            if len(norm) < 3:
+        # Truncate to stay within model context (~512 tokens ≈ 3000 chars)
+        truncated = cleaned[:3000]
+
+        try:
+            ner_results = ner(truncated)
+        except Exception:
+            logger.exception("NER model inference failed")
+            return []
+
+        # Group and deduplicate entities
+        entity_counter: Counter[tuple[str, str]] = Counter()
+        entity_first_context: dict[tuple[str, str], str] = {}
+        entity_original: dict[tuple[str, str], str] = {}
+
+        # Accumulate max confidence per entity for threshold filtering
+        entity_max_score: dict[tuple[str, str], float] = {}
+
+        for ent in ner_results:
+            label = ent.get("entity_group", "")
+            entity_type = _LABEL_MAP.get(label)
+            if not entity_type:
                 continue
-            name_counter[norm] += 1
-            if norm not in name_first_context:
-                start = max(0, match.start() - 60)
-                end = min(len(text), match.end() + 60)
-                name_first_context[norm] = text[start:end].strip()
-            if norm not in name_original:
-                name_original[norm] = raw_name
 
-        for norm, count in name_counter.most_common(50):
-            if norm in seen_normalized:
+            # Confidence gate — reject low-confidence spans early
+            score = ent.get("score", 0.0)
+            if score < _MIN_NER_CONFIDENCE:
                 continue
-            seen_normalized.add(norm)
 
-            entity_type = self._classify_entity(
-                name_original[norm], name_first_context.get(norm, "")
-            )
+            word = ent.get("word", "").strip()
+            if not word or len(word) < 2:
+                continue
+            word = re.sub(r"\s+", " ", word).strip()
+
+            norm = self._normalize_entity_name(word)
+
+            # Length gate
+            if len(norm) < _MIN_ENTITY_LENGTH:
+                continue
+
+            # Stopword / generic word gate
+            if norm in _ENTITY_STOPWORDS or norm in _GENERIC_WORDS:
+                continue
+
+            # Filter all-digit tokens (dates, numbers)
+            if norm.replace(" ", "").isdigit():
+                continue
+
+            key = (norm, entity_type)
+
+            entity_counter[key] += 1
+            entity_max_score[key] = max(entity_max_score.get(key, 0.0), score)
+            if key not in entity_first_context:
+                start = max(0, ent.get("start", 0) - 60)
+                end = min(len(truncated), ent.get("end", 0) + 60)
+                entity_first_context[key] = truncated[start:end].strip()
+            if key not in entity_original:
+                entity_original[key] = word
+
+        results = []
+        for (norm, entity_type), count in entity_counter.most_common(30):
             results.append((
-                name_original[norm],
+                entity_original[(norm, entity_type)],
                 entity_type,
                 count,
-                name_first_context.get(norm, ""),
+                entity_first_context.get((norm, entity_type), ""),
             ))
 
         return results
-
-    def _classify_entity(self, name: str, context: str) -> str:
-        """Classify an entity as person, organization, or location."""
-        name_lower = name.lower()
-        context_lower = context.lower()
-        combined = f"{name_lower} {context_lower}"
-
-        # Check organisation indicators
-        for indicator in _ORG_INDICATORS:
-            if indicator in name_lower:
-                return Entity.EntityType.ORGANIZATION
-
-        # Check if context has org indicators near the name
-        for indicator in _ORG_INDICATORS:
-            if indicator in context_lower:
-                # If indicator is close to the name it's likely an org reference
-                idx = context_lower.find(indicator)
-                name_idx = context_lower.find(name_lower[:10])
-                if name_idx >= 0 and abs(idx - name_idx) < 40:
-                    return Entity.EntityType.ORGANIZATION
-
-        # Check person title indicators in context
-        for title in _PERSON_TITLES:
-            pattern = rf"\b{re.escape(title)}\b"
-            if re.search(pattern, context_lower):
-                title_idx = context_lower.find(title)
-                name_idx = context_lower.find(name_lower[:8])
-                if name_idx >= 0 and 0 <= name_idx - title_idx < 30:
-                    return Entity.EntityType.PERSON
-
-        # Check location indicators
-        for indicator in _LOCATION_INDICATORS:
-            if indicator in combined:
-                return Entity.EntityType.LOCATION
-
-        # Default: two-word names are likely persons, longer → org
-        word_count = len(name.split())
-        if word_count <= 3:
-            return Entity.EntityType.PERSON
-        return Entity.EntityType.ORGANIZATION
 
     def _normalize_entity_name(self, name: str) -> str:
         normalized = unicodedata.normalize("NFKC", name)
@@ -191,7 +280,6 @@ class EntityExtractionService:
         return normalized
 
     def _compute_relevance(self, mentions: int, text_length: int) -> Decimal:
-        """More mentions relative to text → higher relevance."""
         if text_length < 100:
             return Decimal("0.50")
         density = mentions / (text_length / 500)

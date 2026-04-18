@@ -13,11 +13,18 @@ from .common import BaseAdapter, IntegrationError, RawFetchResult, clean_text, p
 logger = logging.getLogger(__name__)
 
 
+# Standard browser User-Agent to avoid 403 blocks from news sites
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
 class RSSAdapter(BaseAdapter):
     service_name = "rss"
 
     def __init__(self):
-        self._user_agent = getattr(settings, "HTTP_USER_AGENT", "NewsIntelBot/1.0")
+        self._user_agent = _BROWSER_UA
         self._timeout = 30
 
     def fetch(self, feed_url: str, timeout: int | None = None) -> list[RawFetchResult]:
@@ -25,7 +32,11 @@ class RSSAdapter(BaseAdapter):
         try:
             resp = requests.get(
                 feed_url,
-                headers={"User-Agent": self._user_agent},
+                headers={
+                    "User-Agent": self._user_agent,
+                    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+                    "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+                },
                 timeout=timeout,
             )
             resp.raise_for_status()

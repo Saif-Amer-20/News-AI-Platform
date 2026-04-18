@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
 from core.admin_site import NewsIntelAdminSite
 
 # Replace the default admin site with our custom grouped version.
@@ -28,6 +30,10 @@ class _ProxiedOpsAdmin(NewsIntelAdminSite):
 newsintel_admin = _ProxiedOpsAdmin()
 
 urlpatterns = [
+    # ── Auth (JWT) ────────────────────────────────────────────
+    path("api/v1/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("api/v1/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+
     # ── System ────────────────────────────────────────────────
     path("api/v1/system/", include("core.urls")),
 
@@ -46,6 +52,9 @@ urlpatterns = [
 
     # ── Self-Learning Intelligence Layer ──────────────────────
     path("api/v1/learning/", include("sources.urls_learning")),
+
+    # ── Entity Intelligence Layer ──────────────────────────────
+    path("api/v1/entity-intelligence/", include("sources.urls_entity_intelligence")),
 
     # ── Legacy explore namespace (kept for backward compat) ───
     path("api/v1/explore/", include("sources.urls_explore")),

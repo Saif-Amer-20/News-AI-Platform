@@ -333,10 +333,10 @@ class EventViewSet(viewsets.ReadOnlyModelViewSet):
                 "narrative_id": story.id,
                 "label": story.title or f"Narrative #{idx}",
                 "stance": "primary" if idx == 1 else "alternative",
-                "confidence": float(story.coherence_score or 0),
+                "confidence": float(story.importance_score or 0),
                 "article_count": articles.count(),
                 "sources": sources_list,
-                "summary": story.summary or "",
+                "summary": story.title or "",
                 "key_claims": [],
             })
         has_conflict = len(narrative_groups) > 1

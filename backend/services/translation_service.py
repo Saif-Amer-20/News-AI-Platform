@@ -19,9 +19,28 @@ def translate_article(article: Article, target_language: str = "ar") -> ArticleT
     """Return an existing or newly-created translation for *article*.
 
     If a completed translation already exists it is returned immediately.
+    If the article is already in the target language, skip translation
+    and copy the content directly.
     Otherwise a new one is created, the translation is performed, and the
     result is persisted.
     """
+    # Skip translation if article is already in the target language
+    article_lang = getattr(article, "language", "") or ""
+    if article_lang and article_lang.startswith(target_language):
+        translation, _ = ArticleTranslation.objects.get_or_create(
+            article=article,
+            language_code=target_language,
+            defaults={
+                "translated_title": article.title or "",
+                "translated_body": article.content or article.normalized_content or "",
+                "translation_status": ArticleTranslation.TranslationStatus.COMPLETED,
+                "translated_at": timezone.now(),
+                "provider": "skip-same-language",
+            },
+        )
+        if translation.translation_status == ArticleTranslation.TranslationStatus.COMPLETED:
+            return translation
+
     existing = ArticleTranslation.objects.filter(
         article=article,
         language_code=target_language,

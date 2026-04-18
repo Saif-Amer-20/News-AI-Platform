@@ -370,6 +370,13 @@ class Article(TimeStampedModel):
     author = models.CharField(max_length=255, blank=True)
     image_url = models.URLField(blank=True)
     content_hash = models.CharField(max_length=64, db_index=True)
+    language = models.CharField(
+        max_length=8,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="ISO 639-1 language code detected on ingest (e.g. 'ar', 'en').",
+    )
     matched_rule_labels = models.JSONField(default=list, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     is_duplicate = models.BooleanField(default=False)
@@ -534,6 +541,35 @@ class Entity(TimeStampedModel):
         blank=True,
     )
     metadata = models.JSONField(default=dict, blank=True)
+    language = models.CharField(
+        max_length=8,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Language of the entity name.",
+    )
+
+    # ── Canonicalization provenance ─────────────────────────────────────
+    class MergeMethod(models.TextChoices):
+        NONE = "none", "None"
+        RULE = "rule", "Rule-Based"
+        EMBEDDING = "embedding", "Embedding-Based"
+        AI = "ai", "AI-Assisted"
+        HYBRID = "hybrid", "Hybrid"
+
+    merge_confidence = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Confidence score (0–1) of the canonical merge decision.",
+    )
+    merge_method = models.CharField(
+        max_length=16,
+        choices=MergeMethod.choices,
+        default=MergeMethod.NONE,
+        blank=True,
+        help_text="Method used to establish the canonical form.",
+    )
 
     class Meta:
         ordering = ["normalized_name"]
@@ -545,6 +581,7 @@ class Entity(TimeStampedModel):
         ]
         indexes = [
             models.Index(fields=["entity_type"]),
+            models.Index(fields=["merge_method"]),
         ]
         verbose_name_plural = "entities"
 
@@ -1296,3 +1333,459 @@ class LearningRecord(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"LearningRecord({self.record_type}) event={self.event_id}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  AI-Driven Entity Consolidation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class EntityReviewQueue(TimeStampedModel):
+    """Ambiguous entity merge candidates that require human review.
+
+    Created by EntityConsolidationService when similarity is high enough to be
+    suspicious but below the auto-merge threshold.  Operators can approve or
+    reject proposed merges from the Django admin.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        AUTO_MERGED = "auto_merged", "Auto-Merged"
+        EXPIRED = "expired", "Expired"
+
+    class MergeMethod(models.TextChoices):
+        REGISTRY = "registry", "Alias Registry"
+        NORMALIZATION = "normalization", "Arabic Normalization"
+        EMBEDDING = "embedding", "Embedding Similarity"
+        HYBRID = "hybrid", "Hybrid"
+
+    # ── Candidate entity ────────────────────────────────────────────────────
+    candidate_entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name="review_queue_as_candidate",
+        help_text="The new / unresolved entity proposed for merging.",
+    )
+    # ── Best matching canonical entity ─────────────────────────────────────
+    matched_entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name="review_queue_as_match",
+        help_text="The existing canonical entity this candidate may represent.",
+    )
+    # ── Scores ──────────────────────────────────────────────────────────────
+    similarity_score = models.DecimalField(
+        max_digits=5, decimal_places=4,
+        help_text="Raw embedding / normalization similarity score (0–1).",
+    )
+    context_score = models.DecimalField(
+        max_digits=5, decimal_places=4, default=Decimal("0.0000"),
+        help_text="Context compatibility score from co-occurring entity analysis.",
+    )
+    final_score = models.DecimalField(
+        max_digits=5, decimal_places=4,
+        help_text="Final merged confidence score used for the decision.",
+    )
+    merge_method = models.CharField(
+        max_length=20,
+        choices=MergeMethod.choices,
+        default=MergeMethod.EMBEDDING,
+    )
+    # ── Evidence ────────────────────────────────────────────────────────────
+    explanation = models.TextField(
+        blank=True,
+        help_text="Human-readable explanation of why the match was proposed.",
+    )
+    supporting_article_ids = models.JSONField(
+        default=list, blank=True,
+        help_text="List of article IDs providing context evidence.",
+    )
+    # ── Review state ────────────────────────────────────────────────────────
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True,
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="entity_reviews",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-final_score", "-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["final_score"]),
+            models.Index(fields=["merge_method"]),
+        ]
+        verbose_name = "Entity Review Queue Item"
+        verbose_name_plural = "Entity Review Queue"
+
+    def __str__(self) -> str:
+        return (
+            f"Review: '{self.candidate_entity.name}' → '{self.matched_entity.name}' "
+            f"({self.final_score:.2f}, {self.status})"
+        )
+
+
+class EntityMergeAudit(TimeStampedModel):
+    """Immutable audit trail for every entity merge performed by the AI pipeline.
+
+    Preserves enough information to understand and roll back any merge:
+      - Which entity was absorbed
+      - Into which canonical entity
+      - Why (confidence + method + evidence)
+      - Whether a rollback has been applied
+    """
+
+    class MergeMethod(models.TextChoices):
+        REGISTRY = "registry", "Alias Registry"
+        NORMALIZATION = "normalization", "Arabic Normalization"
+        EMBEDDING = "embedding", "Embedding Similarity"
+        HYBRID = "hybrid", "Hybrid"
+        MANUAL = "manual", "Manual (Admin)"
+
+    # ── Source entity snapshot (preserved even after deletion) ───────────
+    source_entity_id = models.IntegerField(
+        help_text="PK of the entity that was merged (may no longer exist).",
+    )
+    source_entity_name = models.CharField(max_length=300)
+    source_entity_type = models.CharField(max_length=16)
+    source_entity_canonical = models.CharField(max_length=300, blank=True)
+    source_article_count = models.PositiveIntegerField(default=0)
+    source_aliases = models.JSONField(default=list, blank=True)
+
+    # ── Target canonical entity ──────────────────────────────────────────
+    target_entity = models.ForeignKey(
+        Entity,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="merge_audit_as_target",
+        help_text="The surviving canonical entity.",
+    )
+    target_entity_name = models.CharField(max_length=300)
+
+    # ── Decision ─────────────────────────────────────────────────────────
+    confidence = models.DecimalField(max_digits=5, decimal_places=4)
+    merge_method = models.CharField(max_length=20, choices=MergeMethod.choices)
+    merge_reason = models.TextField(blank=True)
+    article_evidence = models.JSONField(
+        default=list, blank=True,
+        help_text="List of article IDs used as context evidence.",
+    )
+
+    # ── Rollback support ─────────────────────────────────────────────────
+    rolled_back = models.BooleanField(default=False, db_index=True)
+    rolled_back_at = models.DateTimeField(null=True, blank=True)
+    rolled_back_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="entity_rollbacks",
+    )
+    rollback_note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["source_entity_id"]),
+            models.Index(fields=["merge_method"]),
+            models.Index(fields=["rolled_back"]),
+            models.Index(fields=["created_at"]),
+        ]
+        verbose_name = "Entity Merge Audit"
+        verbose_name_plural = "Entity Merge Audits"
+
+    def __str__(self) -> str:
+        rolled = " [ROLLED BACK]" if self.rolled_back else ""
+        return (
+            f"Merge: '{self.source_entity_name}' → '{self.target_entity_name}' "
+            f"({self.confidence:.2f}, {self.merge_method}){rolled}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ENTITY INTELLIGENCE LAYER
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class EntityRelationship(TimeStampedModel):
+    """Co-occurrence relationship between two canonical entities.
+
+    Built by analysing which entities appear together in articles.  Each
+    (entity_a, entity_b) pair is stored once (entity_a.id < entity_b.id to
+    avoid duplicates) with weighted relationship scores.
+
+    The ``relationship_type`` is AI-classified into a geopolitical category
+    (political, military, economic, diplomatic, conflict).
+
+    Scores are recomputed periodically by EntityRelationshipService.
+    """
+
+    class RelationshipType(models.TextChoices):
+        POLITICAL   = "political",   "Political"
+        MILITARY    = "military",    "Military"
+        ECONOMIC    = "economic",    "Economic"
+        DIPLOMATIC  = "diplomatic",  "Diplomatic"
+        CONFLICT    = "conflict",    "Conflict"
+        SOCIAL      = "social",      "Social"
+        UNKNOWN     = "unknown",     "Unknown"
+
+    entity_a = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name="relationships_as_a",
+    )
+    entity_b = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name="relationships_as_b",
+    )
+
+    # ── Quantitative scores ──────────────────────────────────────────────
+    co_occurrence_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Total number of articles where both entities appear.",
+    )
+    strength_score = models.DecimalField(
+        max_digits=6,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        db_index=True,
+        help_text="Weighted relationship strength (0–1).",
+    )
+    confidence = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Confidence in this relationship (0–1).",
+    )
+    recency_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Boost from recency of co-occurring articles.",
+    )
+    source_diversity_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Fraction of distinct sources that mention this pair.",
+    )
+
+    # ── Qualitative classification ────────────────────────────────────────
+    relationship_type = models.CharField(
+        max_length=16,
+        choices=RelationshipType.choices,
+        default=RelationshipType.UNKNOWN,
+        db_index=True,
+    )
+
+    # ── Evidence tracking ─────────────────────────────────────────────────
+    last_seen_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Published date of the most recent co-occurring article.",
+    )
+    first_seen_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Published date of the earliest co-occurring article.",
+    )
+    supporting_article_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Up to 20 most-recent article IDs evidencing this relationship.",
+    )
+    supporting_source_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Distinct source IDs that reported this relationship.",
+    )
+
+    # ── Growth tracking ───────────────────────────────────────────────────
+    prev_co_occurrence_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Co-occurrence count as of the last scoring run (for growth detection).",
+    )
+    growth_rate = models.DecimalField(
+        max_digits=6,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Relative growth in co-occurrences since last run.",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["entity_a", "entity_b"],
+                name="uniq_entity_relationship",
+                condition=models.Q(entity_a__lt=models.F("entity_b")),
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["entity_a", "strength_score"]),
+            models.Index(fields=["entity_b", "strength_score"]),
+            models.Index(fields=["relationship_type"]),
+            models.Index(fields=["last_seen_at"]),
+            models.Index(fields=["strength_score"]),
+            models.Index(fields=["growth_rate"]),
+        ]
+        ordering = ["-strength_score"]
+        verbose_name = "Entity Relationship"
+        verbose_name_plural = "Entity Relationships"
+
+    def __str__(self) -> str:
+        return (
+            f"{self.entity_a.name} ↔ {self.entity_b.name} "
+            f"[{self.get_relationship_type_display()}, strength={self.strength_score:.3f}]"
+        )
+
+    @property
+    def other_entity(self, anchor: Entity) -> Entity:
+        """Return the entity that is NOT the anchor."""
+        return self.entity_b if self.entity_a_id == anchor.id else self.entity_a
+
+
+class EntityInfluenceScore(TimeStampedModel):
+    """Cached influence metrics for a canonical entity.
+
+    Recomputed by EntityIntelligenceService on each background sweep.
+    Stores graph centrality, mention velocity, and growth signals.
+    """
+
+    entity = models.OneToOneField(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name="influence_score",
+    )
+
+    # ── Graph centrality ──────────────────────────────────────────────────
+    degree_centrality = models.DecimalField(
+        max_digits=7,
+        decimal_places=5,
+        default=Decimal("0.00000"),
+        help_text="Number of unique entity relationships (normalised).",
+    )
+    weighted_degree = models.DecimalField(
+        max_digits=7,
+        decimal_places=5,
+        default=Decimal("0.00000"),
+        help_text="Sum of relationship strength scores.",
+    )
+
+    # ── Mention velocity ──────────────────────────────────────────────────
+    mentions_last_24h = models.PositiveIntegerField(default=0)
+    mentions_last_7d  = models.PositiveIntegerField(default=0)
+    mentions_last_30d = models.PositiveIntegerField(default=0)
+
+    # ── Growth signals ────────────────────────────────────────────────────
+    velocity_score = models.DecimalField(
+        max_digits=6,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Normalised mention velocity (0–1).",
+    )
+    growth_flag = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Set when mentions_last_24h is ≥ 2× the 7-day daily average.",
+    )
+
+    # ── Overall influence ─────────────────────────────────────────────────
+    influence_rank = models.PositiveIntegerField(
+        default=0,
+        db_index=True,
+        help_text="Rank by influence (1 = most influential).",
+    )
+    influence_score = models.DecimalField(
+        max_digits=7,
+        decimal_places=5,
+        default=Decimal("0.00000"),
+        db_index=True,
+    )
+
+    scored_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["influence_rank"]
+        indexes = [
+            models.Index(fields=["influence_score"]),
+            models.Index(fields=["growth_flag"]),
+            models.Index(fields=["velocity_score"]),
+        ]
+        verbose_name = "Entity Influence Score"
+        verbose_name_plural = "Entity Influence Scores"
+
+    def __str__(self) -> str:
+        return f"{self.entity.name} — rank #{self.influence_rank} (score={self.influence_score:.4f})"
+
+
+class EntitySignal(TimeStampedModel):
+    """An automatically detected anomaly or intelligence signal for an entity.
+
+    Generated by EntityIntelligenceService and displayed in the Signals feed.
+    """
+
+    class SignalType(models.TextChoices):
+        MENTION_SPIKE    = "mention_spike",    "Sudden Mention Spike"
+        NEW_RELATIONSHIP = "new_relationship", "New Strong Relationship"
+        UNUSUAL_PAIR     = "unusual_pair",     "Unusual Entity Connection"
+        RAPID_GROWTH     = "rapid_growth",     "Rapidly Growing Entity"
+        RELATIONSHIP_DECAY = "relationship_decay", "Relationship Decay"
+
+    class Severity(models.TextChoices):
+        LOW    = "low",    "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH   = "high",   "High"
+
+    entity = models.ForeignKey(
+        Entity,
+        on_delete=models.CASCADE,
+        related_name="signals",
+    )
+    signal_type = models.CharField(
+        max_length=24,
+        choices=SignalType.choices,
+        db_index=True,
+    )
+    severity = models.CharField(
+        max_length=8,
+        choices=Severity.choices,
+        default=Severity.MEDIUM,
+        db_index=True,
+    )
+    title = models.CharField(max_length=300)
+    description = models.TextField(blank=True)
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Signal-type-specific data (e.g. spike ratio, related entity id).",
+    )
+    # Related entities involved in the signal (e.g. for NEW_RELATIONSHIP)
+    related_entity = models.ForeignKey(
+        Entity,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="signals_as_related",
+    )
+    is_read = models.BooleanField(default=False, db_index=True)
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this signal is no longer relevant.",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["signal_type"]),
+            models.Index(fields=["severity"]),
+            models.Index(fields=["is_read"]),
+            models.Index(fields=["created_at"]),
+        ]
+        verbose_name = "Entity Signal"
+        verbose_name_plural = "Entity Signals"
+
+    def __str__(self) -> str:
+        return f"[{self.get_severity_display()}] {self.title}"
+

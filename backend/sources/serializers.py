@@ -138,6 +138,8 @@ class EntitySerializer(serializers.ModelSerializer):
             "country",
             "latitude",
             "longitude",
+            "merge_confidence",
+            "merge_method",
             "article_count",
             "created_at",
         )

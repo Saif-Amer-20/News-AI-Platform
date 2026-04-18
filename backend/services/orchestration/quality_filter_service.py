@@ -18,6 +18,13 @@ BOILERPLATE_PATTERNS = [
     re.compile(r"click\s+here\s+to", re.IGNORECASE),
     re.compile(r"(buy\s+now|order\s+today|limited\s+offer)", re.IGNORECASE),
 ]
+BOILERPLATE_PATTERNS_AR = [
+    re.compile(r"اشترك\s+(الآن|هنا)"),
+    re.compile(r"انقر\s+هنا"),
+    re.compile(r"(اشتر\s+الآن|عرض\s+محدود|سجل\s+الآن)"),
+    re.compile(r"تابعنا\s+على"),
+    re.compile(r"جميع\s+الحقوق\s+محفوظة"),
+]
 
 
 class QualityFilterService:
@@ -27,6 +34,7 @@ class QualityFilterService:
         """Return dict with quality_score and quality_passed boolean."""
         title = normalized.get("title", "")
         content = normalized.get("content", "")
+        language = normalized.get("language", "")
 
         scores: list[float] = []
 
@@ -42,12 +50,13 @@ class QualityFilterService:
         word_score = self._unique_word_ratio_score(content)
         scores.append(word_score)
 
-        # 4. Caps ratio (lower is better for normal text)
-        caps_score = self._caps_score(content)
-        scores.append(caps_score)
+        # 4. Caps ratio — skip for Arabic (no uppercase letters)
+        if not language.startswith("ar"):
+            caps_score = self._caps_score(content)
+            scores.append(caps_score)
 
         # 5. Boilerplate penalty
-        boilerplate_score = self._boilerplate_score(content)
+        boilerplate_score = self._boilerplate_score(content, language)
         scores.append(boilerplate_score)
 
         quality_score = round(sum(scores) / len(scores), 2) if scores else 0.0
@@ -104,8 +113,9 @@ class QualityFilterService:
             return 0.1
         return 1.0
 
-    def _boilerplate_score(self, content: str) -> float:
-        hits = sum(1 for pat in BOILERPLATE_PATTERNS if pat.search(content))
+    def _boilerplate_score(self, content: str, language: str = "") -> float:
+        patterns = BOILERPLATE_PATTERNS_AR if language.startswith("ar") else BOILERPLATE_PATTERNS
+        hits = sum(1 for pat in patterns if pat.search(content))
         if hits == 0:
             return 1.0
         if hits == 1:

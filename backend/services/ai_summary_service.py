@@ -35,6 +35,33 @@ SYSTEM_PROMPT = (
     "Write in the same language as the article. Be thorough."
 )
 
+SYSTEM_PROMPT_AR = (
+    "أنت محلل استخباراتي خبير ومتنبئ جيوسياسي. "
+    "بالنظر إلى مقال إخباري، قدم:\n\n"
+    "1. **ملخص شامل**: ملخص مفصل ومنظم يغطي الحقائق الرئيسية والأطراف المعنية "
+    "والسياق والخلفية وأهمية الخبر. يشمل من وماذا وأين ومتى ولماذا وكيف.\n\n"
+    "2. **التوقعات والتنبؤات**: هذا أمر بالغ الأهمية. بناءً على المعلومات، "
+    "قدم تحليلات وتوقعات مفصلة:\n"
+    "   - ما الذي سيحدث على الأرجح على المدى القصير (أيام/أسابيع)؟\n"
+    "   - ما العواقب على المدى المتوسط (أشهر)؟\n"
+    "   - ما التداعيات المحتملة على المدى الطويل؟\n"
+    "   - من سيتأثر أكثر وكيف؟\n"
+    "   - ما السيناريوهات المحتملة (أفضل حالة، أسوأ حالة، الأكثر احتمالاً)؟\n"
+    "   - ما المؤشرات التي يجب مراقبتها؟\n"
+    "   كن محدداً وتحليلياً وعملياً.\n\n"
+    "صيغة الرد:\n"
+    "## الملخص\n<الملخص هنا>\n\n"
+    "## التوقعات\n<التوقعات هنا>\n\n"
+    "اكتب باللغة العربية. كن شاملاً."
+)
+
+
+def _get_system_prompt(language: str) -> str:
+    """Return Arabic or English system prompt based on article language."""
+    if language.startswith("ar"):
+        return SYSTEM_PROMPT_AR
+    return SYSTEM_PROMPT
+
 
 def generate_ai_summary(article: Article) -> ArticleAISummary:
     """Return an existing or newly-generated AI summary for *article*.
@@ -86,11 +113,15 @@ def generate_ai_summary(article: Article) -> ArticleAISummary:
 
         user_message = f"**Title:** {title}\n\n**Content:**\n{content}"
 
+        # Use language-aware system prompt
+        language = getattr(article, "language", "") or ""
+        system_prompt = _get_system_prompt(language)
+
         model_name = "llama-3.3-70b-versatile"
         response = client.chat.completions.create(
             model=model_name,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
             max_tokens=2000,

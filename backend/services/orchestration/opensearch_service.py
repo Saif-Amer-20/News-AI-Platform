@@ -32,6 +32,7 @@ ARTICLE_MAPPING: dict[str, Any] = {
     "settings": {
         "number_of_shards": 2,
         "number_of_replicas": 1,
+        "index.knn": True,
         "analysis": {
             "analyzer": {
                 "content_analyzer": {
@@ -39,14 +40,26 @@ ARTICLE_MAPPING: dict[str, Any] = {
                     "tokenizer": "standard",
                     "filter": ["lowercase", "stop", "snowball"],
                 },
+                "arabic_analyzer": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": ["lowercase", "arabic_normalization", "arabic_stemmer"],
+                },
+            },
+            "filter": {
+                "arabic_stemmer": {
+                    "type": "stemmer",
+                    "language": "arabic",
+                },
             },
         },
     },
     "mappings": {
         "properties": {
             "article_id": {"type": "integer"},
-            "title": {"type": "text", "analyzer": "content_analyzer", "fields": {"raw": {"type": "keyword"}}},
-            "content": {"type": "text", "analyzer": "content_analyzer"},
+            "title": {"type": "text", "analyzer": "content_analyzer", "fields": {"raw": {"type": "keyword"}, "arabic": {"type": "text", "analyzer": "arabic_analyzer"}}},
+            "content": {"type": "text", "analyzer": "content_analyzer", "fields": {"arabic": {"type": "text", "analyzer": "arabic_analyzer"}}},
+            "language": {"type": "keyword"},
             "url": {"type": "keyword"},
             "author": {"type": "keyword"},
             "source_id": {"type": "integer"},
@@ -67,6 +80,15 @@ ARTICLE_MAPPING: dict[str, Any] = {
             "matched_rule_labels": {"type": "keyword"},
             "content_hash": {"type": "keyword"},
             "indexed_at": {"type": "date"},
+            "embedding": {
+                "type": "knn_vector",
+                "dimension": 384,
+                "method": {
+                    "name": "hnsw",
+                    "space_type": "cosinesimil",
+                    "engine": "nmslib",
+                },
+            },
         },
     },
 }
@@ -256,6 +278,33 @@ class OpenSearchService:
 
         return self._adapter.search(EVENT_INDEX, query, size=size)
 
+    def semantic_search(
+        self,
+        query_text: str,
+        *,
+        k: int = 10,
+        min_score: float = 0.5,
+    ) -> list[dict]:
+        """k-NN semantic search using embedding vectors."""
+        from .semantic_similarity_service import SemanticSimilarityService
+
+        sim = SemanticSimilarityService()
+        query_vec = sim.compute_embedding(query_text)
+
+        body = {
+            "size": k,
+            "min_score": min_score,
+            "query": {
+                "knn": {
+                    "embedding": {
+                        "vector": query_vec,
+                        "k": k,
+                    },
+                },
+            },
+        }
+        return self._adapter.search(ARTICLE_INDEX, body, size=k)
+
     # ── Document builders ─────────────────────────────────────────
 
     def _article_to_doc(self, article) -> dict:
@@ -289,6 +338,7 @@ class OpenSearchService:
             "article_id": article.id,
             "title": article.title,
             "content": (article.content or "")[:10000],
+            "language": getattr(article, "language", ""),
             "url": article.url,
             "author": article.author,
             "source_id": article.source_id,
@@ -309,7 +359,16 @@ class OpenSearchService:
             "matched_rule_labels": article.matched_rule_labels or [],
             "content_hash": article.content_hash,
             "indexed_at": datetime.utcnow().isoformat(),
+            "embedding": self._compute_embedding(article),
         }
+
+    def _compute_embedding(self, article) -> list[float]:
+        """Compute 384-dim embedding for the article text."""
+        from .semantic_similarity_service import SemanticSimilarityService
+
+        text = f"{article.title or ''} {(article.content or '')[:2000]}"
+        sim = SemanticSimilarityService()
+        return sim.compute_embedding(text)
 
     def _event_to_doc(self, event) -> dict:
         """Convert Event ORM instance to an OpenSearch document."""
